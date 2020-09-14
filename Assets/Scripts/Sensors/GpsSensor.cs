@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2018 LG Electronics, Inc.
+ * Copyright (c) 2018-2020 LG Electronics, Inc.
  *
  * This software contains code licensed as described in LICENSE.
  *
@@ -39,11 +39,11 @@ namespace Simulator.Sensors
         float NextSend;
         uint SendSequence;
 
-        IBridge Bridge;
-        IWriter<GpsData> Writer;
+        BridgeInstance Bridge;
+        Publisher<GpsData> Publish;
 
         MapOrigin MapOrigin;
-        
+
         public override SensorDistributionType DistributionType => SensorDistributionType.LowLoad;
 
         private void Awake()
@@ -61,10 +61,10 @@ namespace Simulator.Sensors
             Destroyed = true;
         }
 
-        public override void OnBridgeSetup(IBridge bridge)
+        public override void OnBridgeSetup(BridgeInstance bridge)
         {
             Bridge = bridge;
-            Writer = Bridge.AddWriter<GpsData>(Topic);
+            Publish = Bridge.AddPublisher<GpsData>(Topic);
         }
 
         void Publisher()
@@ -95,8 +95,9 @@ namespace Simulator.Sensors
                     {
                         msg.Item2();
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        UnityEngine.Debug.LogException(ex, this);
                     }
                     nextPublish = now + (long)(Stopwatch.Frequency / Frequency);
                     LastTimestamp = msg.Item1;
@@ -128,6 +129,9 @@ namespace Simulator.Sensors
 
             var location = MapOrigin.GetGpsLocation(transform.position, IgnoreMapOrigin);
 
+            var orientation = transform.rotation;
+            orientation.Set(-orientation.z, orientation.x, -orientation.y, orientation.w); // converting to right handed xyz
+
             var data = new GpsData()
             {
                 Name = Name,
@@ -141,12 +145,18 @@ namespace Simulator.Sensors
                 Altitude = location.Altitude,
                 Northing = location.Northing,
                 Easting = location.Easting,
-                Orientation = transform.rotation,
+                Orientation = orientation,
             };
-            
+
             lock (MessageQueue)
             {
-                MessageQueue.Enqueue(Tuple.Create(time, (Action)(() => Writer.Write(data))));
+                MessageQueue.Enqueue(Tuple.Create(time, (Action)(() =>
+                {
+                    if (Bridge != null && Bridge.Status == Status.Connected)
+                    {
+                        Publish(data);
+                    }
+                })));
             }
         }
 
@@ -177,6 +187,9 @@ namespace Simulator.Sensors
 
             var location = MapOrigin.GetGpsLocation(transform.position, IgnoreMapOrigin);
 
+            var orientation = transform.rotation;
+            orientation.Set(-orientation.z, orientation.x, -orientation.y, orientation.w); // converting to right handed xyz
+
             var graphData = new Dictionary<string, object>()
             {
                 {"Ignore MapOrigin", IgnoreMapOrigin},
@@ -185,7 +198,7 @@ namespace Simulator.Sensors
                 {"Altitude", location.Altitude},
                 {"Northing", location.Northing},
                 {"Easting", location.Easting},
-                {"Orientation", transform.rotation}
+                {"Orientation", orientation}
             };
             visualizer.UpdateGraphValues(graphData);
         }

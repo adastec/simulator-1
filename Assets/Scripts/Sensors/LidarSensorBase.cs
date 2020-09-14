@@ -7,14 +7,12 @@
 
 using System;
 using System.Linq;
-using System.Threading.Tasks;
 using System.Collections.Generic;
 using Unity.Jobs;
 using Unity.Profiling;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
-using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.HighDefinition;
 using Simulator.Bridge;
@@ -25,8 +23,6 @@ using PointCloudData = Simulator.Bridge.Data.PointCloudData;
 
 namespace Simulator.Sensors
 {
-    using global::Utilities;
-
     public abstract class LidarSensorBase : SensorBase
     {
         // Lidar x is forward, y is left, z is up
@@ -102,8 +98,8 @@ namespace Simulator.Sensors
         [SensorParameter]
         public Color PointColor = Color.red;
 
-        protected IBridge Bridge;
-        protected IWriter<PointCloudData> Writer;
+        protected BridgeInstance Bridge;
+        protected Publisher<PointCloudData> Publish;
         protected uint SendSequence;
 
         [NativeDisableContainerSafetyRestriction]
@@ -176,44 +172,20 @@ namespace Simulator.Sensors
         protected ProfilerMarker EndReadMarker = new ProfilerMarker("Lidar.EndRead");
 
         private SensorRenderTarget activeTarget;
+        private ShaderTagId passId;
 
         public override SensorDistributionType DistributionType => SensorDistributionType.UltraHighLoad;
 
-        public override void OnBridgeSetup(IBridge bridge)
+        public override void OnBridgeSetup(BridgeInstance bridge)
         {
             Bridge = bridge;
-            Writer = bridge.AddWriter<PointCloudData>(Topic);
+            Publish = bridge.AddPublisher<PointCloudData>(Topic);
         }
 
         public void CustomRender(ScriptableRenderContext context, HDCamera hd)
         {
-            var camera = hd.camera;
-
             var cmd = CommandBufferPool.Get();
-            // NOTE: Target setting is done in BeginReadRequest through Camera.SetTargetBuffers. Doing it through
-            //       the command queue changes output slightly, probably should be debugged eventually (low priority).
-            // CoreUtils.SetRenderTarget(cmd, activeTarget.colorTexture, activeTarget.depthTexture);
-            hd.SetupGlobalParams(cmd, 0);
-
-            CoreUtils.SetRenderTarget(cmd, activeTarget.ColorHandle, activeTarget.DepthHandle);
-            CoreUtils.ClearRenderTarget(cmd, ClearFlag.All, Color.clear);
-
-            ScriptableCullingParameters culling;
-            if (camera.TryGetCullingParameters(out culling))
-            {
-                var cull = context.Cull(ref culling);
-
-                context.SetupCameraProperties(camera);
-                context.ExecuteCommandBuffer(cmd);
-                cmd.Clear();
-
-                var sorting = new SortingSettings(camera);
-                var drawing = new DrawingSettings(new ShaderTagId("SimulatorLidarPass"), sorting);
-                var filter = new FilteringSettings(RenderQueueRange.all);
-
-                context.DrawRenderers(cull, ref drawing, ref filter);
-            }
-
+            SensorPassRenderer.Render(context, cmd, hd, activeTarget, passId, Color.clear);
             PointCloudManager.RenderLidar(context, cmd, hd, activeTarget.ColorHandle, activeTarget.DepthHandle);
             CommandBufferPool.Release(cmd);
         }
@@ -225,6 +197,7 @@ namespace Simulator.Sensors
             hd.customRender += CustomRender;
             PointCloudMaterial = new Material(RuntimeSettings.Instance.PointCloudShader);
             PointCloudLayer = LayerMask.NameToLayer("Sensor Effects");
+            passId = new ShaderTagId("SimulatorLidarPass");
 
             Reset();
         }

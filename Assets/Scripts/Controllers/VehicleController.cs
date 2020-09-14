@@ -17,17 +17,24 @@ public class VehicleController : AgentController
     private VehicleActions actions;
     private SensorsController sensorsController;
     private AgentController AgentController;
+    private Rigidbody rb;
 
     private List<IVehicleInputs> inputs = new List<IVehicleInputs>();
-
+    private IVehicleInputs[] interfaceScripts = new IVehicleInputs[] { }; //ADASTEC
     private string vehicleName;
     private Vector3 initialPosition;
     private Quaternion initialRotation;
+    private Vector3 lastRBPosition;
+    private Vector3 simpleVelocity;
+    private Vector3 simpleAcceleration;
 
     public Vector2 DirectionInput { get; set; } = Vector2.zero;
     public float AccelInput { get; set; } = 0f;
     public float SteerInput { get; set; } = 0f;
     public float BrakeInput { get; set; } = 0f;
+    
+    public override Vector3 Velocity => simpleVelocity;
+    public override Vector3 Acceleration => simpleAcceleration;
 
     public override SensorsController AgentSensorsController
     {
@@ -65,6 +72,15 @@ public class VehicleController : AgentController
     public void FixedUpdate()
     {
         UpdateInputAPI();
+
+        if (Time.fixedDeltaTime > 0)
+        {
+            var previousVelocity = simpleVelocity;
+            var position = rb.position;
+            simpleVelocity = (position - lastRBPosition) / Time.fixedDeltaTime;
+            simpleAcceleration = simpleVelocity - previousVelocity;
+            lastRBPosition = position;
+        }
     }
 
     public override void Init()
@@ -74,7 +90,10 @@ public class VehicleController : AgentController
         dynamics = GetComponent<IVehicleDynamics>();
         actions = GetComponent<VehicleActions>();
         AgentController = GetComponent<AgentController>();
-        inputs.AddRange(GetComponentsInChildren<IVehicleInputs>());
+        rb = GetComponent<Rigidbody>();
+        var monoBehaviourObjects = GetComponentsInChildren<MonoBehaviour>(); //ADASTEC
+        interfaceScripts = (from a in monoBehaviourObjects where a.GetType().GetInterfaces().Any(k => k == typeof(IVehicleInputs)) select (IVehicleInputs)a).ToArray(); //ADASTEC
+        //inputs.AddRange(GetComponentsInChildren<IVehicleInputs>());
         initialPosition = transform.position;
         initialRotation = transform.rotation;
     }
@@ -86,11 +105,11 @@ public class VehicleController : AgentController
         SteerInput = AccelInput = BrakeInput = 0f;
         
         // get all inputs
-        foreach (var input in inputs)
+        foreach (var input in interfaceScripts)
         {
-            SteerInput += input.SteerInput;
-            AccelInput += input.AccelInput;
-            BrakeInput += input.BrakeInput;
+                SteerInput += input.SteerInput;
+                AccelInput += input.AccelInput;
+                BrakeInput += input.BrakeInput;
         }
 
         // clamp if over
@@ -159,6 +178,7 @@ public class VehicleController : AgentController
 
     private void OnDisable()
     {
+        if (Config == null) return;
         SIM.LogSimulation(SIM.Simulation.VehicleStop, Config.Name, elapsedTime);
         SIM.LogSimulation(SIM.Simulation.BridgeTypeStop, Config.Bridge != null ? Config.Bridge.Name : "None", elapsedTime);
 

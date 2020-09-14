@@ -15,7 +15,6 @@ using UnityEngine;
 using Simulator.Api;
 using Simulator.Map;
 using Simulator.Network.Core.Components;
-using Simulator.Network.Core;
 using Simulator.Network.Core.Connection;
 using Simulator.Network.Core.Identification;
 using Simulator.Network.Core.Messaging;
@@ -23,7 +22,7 @@ using Simulator.Network.Core.Messaging.Data;
 using Simulator.Utilities;
 
 [SelectionBase]
-public class NPCController : MonoBehaviour, IMessageSender, IMessageReceiver, IGloballyUniquelyIdentified
+public class NPCController : MonoBehaviour, ITriggerAgent, IMessageSender, IMessageReceiver, IGloballyUniquelyIdentified
 {
     public NPCBehaviourBase ActiveBehaviour => _ActiveBehaviour;
     private NPCBehaviourBase _ActiveBehaviour;
@@ -38,6 +37,7 @@ public class NPCController : MonoBehaviour, IMessageSender, IMessageReceiver, IG
 
     public Vector3 simpleVelocity;
     public Vector3 simpleAngularVelocity;
+    public Vector3 simpleAcceleration;
     private GameObject wheelColliderHolder;
     class WheelData
     {
@@ -52,6 +52,8 @@ public class NPCController : MonoBehaviour, IMessageSender, IMessageReceiver, IG
 
     // map data
     public string id { get; set; }
+    
+    public Transform AgentTransform => transform;
 
     // targeting
     public Transform frontCenter;
@@ -63,16 +65,15 @@ public class NPCController : MonoBehaviour, IMessageSender, IMessageReceiver, IG
 
     public float dampenFactor = 10f; // this value requires tuning
     public float adjustFactor = 10f; // this value requires tuning
-    // wheel visuals
 
-    class IndicatorRenderer
+    private class IndicatorRenderer
     {
         public Renderer renderer = null;
         public int materialIndex;
-        public void SetEmission(Color value)
+        public void SetEmission(float value)
         {
             var mats = renderer.materials;
-            mats[materialIndex].SetVector("_EmissiveColor", value);
+            mats[materialIndex].SetFloat("_EmitIntensity", value * 12.8f); // nits bc ev100 is bugged in shader
             renderer.materials = mats;
         }
     }
@@ -107,21 +108,11 @@ public class NPCController : MonoBehaviour, IMessageSender, IMessageReceiver, IG
     };
     private NPCLightStateTypes currentNPCLightState = NPCLightStateTypes.Off;
 
-    public Color lowBeamEmission = new Color(0.1f, 0.1f, 0.1f);
-    public Color highBeamEmission = new Color(0.25f, 0.25f, 0.25f);
-    public Color runningLightEmission = new Color(0.1f, 0f, 0f);
-
-    public Color brakeEmission = new Color(0.25f, 0f, 0f);
-    public Color indicatorEmission  = new Color(0.25f, 0.25f, 0f);
-    public Color reverseEmission = new Color(0.25f, 0.25f, 0.25f);
-
     public bool isForcedStop = false;
     public bool isLeftTurn = false;
     public bool isRightTurn = false;
     private IEnumerator turnSignalIE;
-
     private IEnumerator hazardSignalIE;
-
 
     public System.Random RandomGenerator;
     public MonoBehaviour FixedUpdateManager;
@@ -136,7 +127,6 @@ public class NPCController : MonoBehaviour, IMessageSender, IMessageReceiver, IG
     public Color NPCColor { get; set; } = Color.black;
     private int _seed;
     public MapIntersection currentIntersection = null;
-
     #endregion
 
     #region mono
@@ -172,12 +162,13 @@ public class NPCController : MonoBehaviour, IMessageSender, IMessageReceiver, IG
         {
             Vector3 newLeft = Vector3.Cross(transform.forward, Vector3.up);
             Vector3 desiredUp = Vector3.Cross(transform.forward, newLeft);
-            if(desiredUp.y < 0) desiredUp = -desiredUp;
+            if (desiredUp.y < 0)
+            {
+                desiredUp = -desiredUp;
+            }
 
             Quaternion delta = Quaternion.FromToRotation(transform.up, desiredUp);
-            Vector3 axis;
-            float angle;
-            delta.ToAngleAxis(out angle, out axis);
+            delta.ToAngleAxis(out float angle, out Vector3 axis);
             Vector3 torque = axis * (angle * adjustFactor - rb.angularVelocity.z * dampenFactor);
 
             rb.AddTorque(torque, ForceMode.Acceleration);
@@ -185,7 +176,9 @@ public class NPCController : MonoBehaviour, IMessageSender, IMessageReceiver, IG
 
         if (Time.fixedDeltaTime > 0)
         {
+            var previousVelocity = simpleVelocity;
             simpleVelocity = (rb.position - lastRBPosition) / Time.fixedDeltaTime;
+            simpleAcceleration = simpleVelocity - previousVelocity;
 
             Vector3 euler1 = lastRBRotation.eulerAngles;
             Vector3 euler2 = rb.rotation.eulerAngles;
@@ -257,7 +250,10 @@ public class NPCController : MonoBehaviour, IMessageSender, IMessageReceiver, IG
         rb = GetComponent<Rigidbody>();
         allRenderers = GetComponentsInChildren<Renderer>().ToList();
         allLights = GetComponentsInChildren<Light>();
-        if(allLights.Length == 0) Debug.LogError(gameObject.name+" did not find any lights!");
+        if (allLights.Length == 0)
+        {
+            Debug.LogError(gameObject.name + " did not find any lights!");
+        }
 
         Color.RGBToHSV(NPCColor, out float h, out float s, out float v);
         h = Mathf.Clamp01(RandomGenerator.NextFloat(h - 0.01f, h + 0.01f));
@@ -337,47 +333,47 @@ public class NPCController : MonoBehaviour, IMessageSender, IMessageReceiver, IG
             }
         }
 
-        if(headLights.Count == 0)
+        if (headLights.Count == 0)
         {
             Debug.LogWarning($"Asset {gameObject.name} missing light 'Head'");
         }
-        if(brakeLights.Count == 0)
+        if (brakeLights.Count == 0)
         {
             Debug.LogWarning($"Asset {gameObject.name} missing light 'Brake'");
         }
-        if(indicatorLeftLights.Count == 0)
+        if (indicatorLeftLights.Count == 0)
         {
             Debug.LogWarning($"Asset {gameObject.name} missing light 'IndicatorLeft'");
         }
-        if(indicatorRightLights.Count == 0)
+        if (indicatorRightLights.Count == 0)
         {
             Debug.LogWarning($"Asset {gameObject.name} missing light 'IndicatorRight'");
         }
-        if(indicatorReverseLight == null)
+        if (indicatorReverseLight == null)
         {
             Debug.LogWarning($"Asset {gameObject.name} missing light 'IndicatorReverse'");
         }
-        if(MainCollider == null)
+        if (MainCollider == null)
         {
             Debug.LogWarning($"Asset {gameObject.name} missing renderer 'Body'");
         }
-        if(headLight == null)
+        if (headLight == null)
         {
             Debug.LogWarning($"Asset {gameObject.name} missing material 'LightHead'");
         }
-        if(brakeLight == null)
+        if (brakeLight == null)
         {
             Debug.LogWarning($"Asset {gameObject.name} missing material 'LightBrake'");
         }
-        if(indicatorRight == null)
+        if (indicatorRight == null)
         {
             Debug.LogWarning($"Asset {gameObject.name} missing material 'IndicatorRight'");
         }
-        if(indicatorLeft == null)
+        if (indicatorLeft == null)
         {
             Debug.LogWarning($"Asset {gameObject.name} missing material 'IndicatorLeft'");
         }
-        if(indicatorReverse == null)
+        if (indicatorReverse == null)
         {
             Debug.LogWarning($"Asset {gameObject.name} missing material 'IndicatorReverse'");
         }
@@ -513,6 +509,10 @@ public class NPCController : MonoBehaviour, IMessageSender, IMessageReceiver, IG
     #endregion
 
     #region physics
+    public float MovementSpeed { get; set; }
+    
+    public Vector3 Acceleration => simpleAcceleration;
+
     public Vector3 GetVelocity()
     {
         return simpleVelocity;
@@ -596,25 +596,21 @@ public class NPCController : MonoBehaviour, IMessageSender, IMessageReceiver, IG
             case NPCLightStateTypes.Off:
                 foreach (var light in headLights)
                     light.enabled = false;
-                headLight?.SetEmission(Color.black);
+                headLight?.SetEmission(0f);
                 break;
             case NPCLightStateTypes.Low:
                 foreach (var light in headLights)
                 {
                     light.enabled = true;
-                    //light.intensity = 1f;
-                    light.range = 200.0f;
                 }
-                headLight?.SetEmission(lowBeamEmission);
+                headLight?.SetEmission(10f);
                 break;
             case NPCLightStateTypes.High:
                 foreach (var light in headLights)
                 {
                     light.enabled = true;
-                    //light.intensity = 1f;
-                    light.range = 400.0f;
                 }
-                headLight?.SetEmission(highBeamEmission);
+                headLight?.SetEmission(12f);
                 break;
         }
     }
@@ -626,17 +622,15 @@ public class NPCController : MonoBehaviour, IMessageSender, IMessageReceiver, IG
             case NPCLightStateTypes.Off:
                 foreach (var light in brakeLights)
                     light.enabled = false;
-                brakeLight?.SetEmission(Color.black);
+                brakeLight?.SetEmission(0f);
                 break;
             case NPCLightStateTypes.Low:
             case NPCLightStateTypes.High:
                 foreach (var light in brakeLights)
                 {
                     light.enabled = true;
-                    //light.intensity = 1f;
-                    light.range = 25.0f;
                 }
-                brakeLight?.SetEmission(runningLightEmission);
+                brakeLight?.SetEmission(3f);
                 break;
         }
     }
@@ -651,16 +645,14 @@ public class NPCController : MonoBehaviour, IMessageSender, IMessageReceiver, IG
                     foreach (var light in brakeLights)
                     {
                         light.enabled = true;
-                        //light.intensity = 1f;
-                        light.range = 50.0f;
                     }
-                    brakeLight?.SetEmission(runningLightEmission);
+                    brakeLight?.SetEmission(10f);
                 }
                 else
                 {
                     foreach (var light in brakeLights)
                         light.enabled = false;
-                    brakeLight?.SetEmission(Color.black);
+                    brakeLight?.SetEmission(0f);
                 }
                 break;
             case NPCLightStateTypes.Low:
@@ -670,20 +662,16 @@ public class NPCController : MonoBehaviour, IMessageSender, IMessageReceiver, IG
                     foreach (var light in brakeLights)
                     {
                         light.enabled = true;
-                        //light.intensity = 1f;
-                        light.range = 50.0f;
                     }
-                    brakeLight?.SetEmission(runningLightEmission);
+                    brakeLight?.SetEmission(10f);
                 }
                 else
                 {
                     foreach (var light in brakeLights)
                     {
                         light.enabled = true;
-                        //light.intensity = 1f;
-                        light.range = 25.0f;
                     }
-                    brakeLight?.SetEmission(brakeEmission);
+                    brakeLight?.SetEmission(3f);
                 }
                 break;
         }
@@ -783,11 +771,11 @@ public class NPCController : MonoBehaviour, IMessageSender, IMessageReceiver, IG
 
     private void SetTurnIndicator(bool state = false, bool isReset = false, bool isHazard = false)
     {
-        Color color = state ? indicatorEmission : Color.black;
+        float emit = state ? 10f : 0f;
         if (isHazard)
         {
-            indicatorLeft?.SetEmission(color);
-            indicatorRight?.SetEmission(color);
+            indicatorLeft?.SetEmission(emit);
+            indicatorRight?.SetEmission(emit);
             foreach (var light in indicatorLeftLights)
                 light.enabled = state;
             foreach (var light in indicatorRightLights)
@@ -795,15 +783,15 @@ public class NPCController : MonoBehaviour, IMessageSender, IMessageReceiver, IG
         }
         else
         {
-            (isLeftTurn ? indicatorLeft : indicatorRight)?.SetEmission(color);
+            (isLeftTurn ? indicatorLeft : indicatorRight)?.SetEmission(emit);
             foreach (var light in isLeftTurn ? indicatorLeftLights : indicatorRightLights)
                 light.enabled = state;
         }
 
         if (isReset)
         {
-            indicatorLeft?.SetEmission(Color.black);
-            indicatorRight?.SetEmission(Color.black);
+            indicatorLeft?.SetEmission(0f);
+            indicatorRight?.SetEmission(0f);
             foreach (var light in indicatorLeftLights)
                 light.enabled = false;
             foreach (var light in indicatorRightLights)
@@ -813,7 +801,7 @@ public class NPCController : MonoBehaviour, IMessageSender, IMessageReceiver, IG
 
     public void SetIndicatorReverse(bool state)
     {
-        indicatorReverse?.SetEmission(state ? reverseEmission : Color.black);
+        indicatorReverse?.SetEmission(state ? 8f : 0f);
         if (indicatorReverseLight != null)
         {
             indicatorReverseLight.enabled = state;
@@ -866,11 +854,11 @@ public class NPCController : MonoBehaviour, IMessageSender, IMessageReceiver, IG
 
         foreach (var wheel in wheels)
         {
-            wheelMovement(wheel.transform, wheel.collider, wheel.origPos, theta, finalQ, wheel.steering);
+            MoveWheel(wheel.transform, wheel.collider, wheel.origPos, theta, finalQ, wheel.steering);
         }
     }
 
-    private void wheelMovement(Transform wheel, WheelCollider collider, Vector3 origPos, float theta, Quaternion Q, bool steering)
+    private void MoveWheel(Transform wheel, WheelCollider collider, Vector3 origPos, float theta, Quaternion Q, bool steering)
     {
         if (wheel.localPosition != origPos)
         {

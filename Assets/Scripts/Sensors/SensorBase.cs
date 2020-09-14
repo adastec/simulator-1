@@ -9,8 +9,6 @@ using UnityEngine;
 using Simulator.Bridge;
 using Simulator.Utilities;
 using Simulator.Sensors.UI;
-using Simulator.Analysis;
-using System.Collections.Generic;
 using System.Collections;
 
 namespace Simulator.Sensors
@@ -35,7 +33,10 @@ namespace Simulator.Sensors
 
         public virtual SensorDistributionType DistributionType => SensorDistributionType.DoNotDistribute;
 
-        public abstract void OnBridgeSetup(IBridge bridge);
+        [HideInInspector]
+        public Transform ParentTransform;
+
+        public abstract void OnBridgeSetup(BridgeInstance bridge);
         public abstract void OnVisualize(Visualizer visualizer);
         public abstract void OnVisualizeToggle(bool state);
         public virtual void OnAnalyze() { }

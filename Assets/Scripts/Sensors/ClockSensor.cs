@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2019 LG Electronics, Inc.
+ * Copyright (c) 2019-2020 LG Electronics, Inc.
  *
  * This software contains code licensed as described in LICENSE.
  *
@@ -24,21 +24,22 @@ namespace Simulator.Sensors
         Queue<Tuple<double, float, Action>> MessageQueue =
             new Queue<Tuple<double, float, Action>>();
 
-        IBridge Bridge;
-        IWriter<ClockData> Writer;
+        BridgeInstance Bridge;
+        Publisher<ClockData> Publish;
 
         bool Destroyed = false;
         bool IsFirstFixedUpdate = true;
         double LastTimestamp;
 
         ClockData data;
+        private bool Sending = false;
         
         public override SensorDistributionType DistributionType => SensorDistributionType.LowLoad;
 
-        public override void OnBridgeSetup(IBridge bridge)
+        public override void OnBridgeSetup(BridgeInstance bridge)
         {
             Bridge = bridge;
-            Writer = bridge.AddWriter<ClockData>(Topic);
+            Publish = bridge.AddPublisher<ClockData>(Topic);
         }
 
         public void Start()
@@ -75,12 +76,17 @@ namespace Simulator.Sensors
 
                 if (msg != null)
                 {
-                    try
+                    if (!Sending) // Drop this message if previous sending has not finished.
                     {
-                        msg.Item3();
-                    }
-                    catch
-                    {
+                        try
+                        {
+                            Sending = true;
+                            msg.Item3();
+                        }
+                        catch
+                        {
+                            Sending = false;
+                        }
                     }
                     nextPublish = now + (long)(Stopwatch.Frequency * msg.Item2);
                     LastTimestamp = msg.Item1;
@@ -117,7 +123,8 @@ namespace Simulator.Sensors
             {
                 lock (MessageQueue)
                 {
-                    MessageQueue.Enqueue(Tuple.Create(time, Time.fixedDeltaTime, (Action)(() => Writer.Write(data, null))));
+                    MessageQueue.Enqueue(Tuple.Create(time, Time.fixedDeltaTime,
+                        (Action)(() => Publish(data, () => Sending = false))));
                 }
             }
         }

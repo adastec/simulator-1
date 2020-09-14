@@ -141,7 +141,8 @@ public class NPCLaneFollowBehaviour : NPCBehaviourBase
     #region spawn
     protected void EvaluateDistanceFromFocus()
     {
-        if (!SimulatorManager.Instance.NPCManager.WithinSpawnArea(transform.position) && !SimulatorManager.Instance.NPCManager.IsVisible(gameObject))
+        if (!SimulatorManager.Instance.NPCManager.WithinSpawnArea(transform.position) && 
+            !SimulatorManager.Instance.NPCManager.IsVisible(gameObject))
         {
             Despawn();
         }
@@ -149,7 +150,7 @@ public class NPCLaneFollowBehaviour : NPCBehaviourBase
 
     protected void Despawn()
     {
-        if (AutomaticMode)
+        if (AutomaticMode && !SimulatorManager.Instance.IsAPI)
         {
             ResetData();
             NPCManager.DespawnNPC(controller);
@@ -807,9 +808,8 @@ public class NPCLaneFollowBehaviour : NPCBehaviourBase
 
         // ground collision
         groundCheckInfo = new RaycastHit();
-        if (!Physics.Raycast(transform.position + Vector3.up, Vector3.down, out groundCheckInfo, 5f, groundHitBitmask))
+        if (!Physics.Raycast(transform.position + transform.up, -transform.up, out groundCheckInfo, 5f, groundHitBitmask))
         {
-            //Debug.Log($"NPC Despawn: ground raycast failed");
             Despawn();
         }
 

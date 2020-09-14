@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2019 LG Electronics, Inc.
+ * Copyright (c) 2019-2020 LG Electronics, Inc.
  *
  * This software contains code licensed as described in LICENSE.
  *
@@ -27,6 +27,7 @@ using Simulator.Network.Core.Messaging;
 using Simulator.FMU;
 using Simulator.Network.Shared;
 using UnityEngine.Rendering.HighDefinition;
+using Simulator.Bridge;
 
 public class AgentManager : MonoBehaviour
 {
@@ -57,6 +58,16 @@ public class AgentManager : MonoBehaviour
         agentController.SensorsChanged += AgentControllerOnSensorsChanged;
         agentController.Config = config;
         agentController.Config.AgentGO = go;
+
+        var lane = go.AddComponent<VehicleLane>();
+
+        var baseLink = go.GetComponentInChildren<BaseLink>();
+        if (baseLink == null)
+        {
+            baseLink = new GameObject("BaseLink").AddComponent<BaseLink>();
+            baseLink.transform.SetParent(go.transform, false);
+        }
+
         SIM.LogSimulation(SIM.Simulation.VehicleStart, config.Name);
         
         ActiveAgents.Add(agentController.Config);
@@ -71,12 +82,7 @@ public class AgentManager : MonoBehaviour
 
             if (config.Connection != null)
             {
-                var split = config.Connection.Split(':');
-                if (split.Length != 2)
-                {
-                    throw new Exception("Incorrect bridge connection string, expected HOSTNAME:PORT");
-                }
-                bridgeClient.Connect(split[0], int.Parse(split[1]));
+                bridgeClient.Connect(config.Connection);
             }
         }
         SIM.LogSimulation(SIM.Simulation.BridgeTypeStart, config.Bridge != null ? config.Bridge.Name : "None");
@@ -113,22 +119,6 @@ public class AgentManager : MonoBehaviour
         go.transform.position = config.Position;
         go.transform.rotation = config.Rotation;
         agentController.Init();
-
-#if UNITY_EDITOR
-        // TODO remove hack for editor opaque with alpha clipping 2019.3.3
-        Array.ForEach(go.GetComponentsInChildren<Renderer>(), renderer =>
-        {
-            foreach (var m in renderer.materials)
-            {
-                m.shader = Shader.Find(m.shader.name);
-            }
-        });
-
-        Array.ForEach(go.GetComponentsInChildren<DecalProjector>(), decal =>
-        {
-            decal.material.shader = Shader.Find(decal.material.shader.name);
-        });
-#endif
 
         return go;
     }
@@ -279,7 +269,7 @@ public class AgentManager : MonoBehaviour
                                         };
                                         if (!string.IsNullOrEmpty(vehicle.BridgeType))
                                         {
-                                            config.Bridge = Simulator.Web.Config.Bridges.Find(bridge => bridge.Name == vehicle.BridgeType);
+                                            config.Bridge = BridgePlugins.Get(vehicle.BridgeType);
                                             if (config.Bridge == null)
                                             {
                                                 throw new Exception($"Bridge {vehicle.BridgeType} not found");
@@ -313,8 +303,8 @@ public class AgentManager : MonoBehaviour
             var config = ActiveAgents[0];
 
             var bridgeClient = config.AgentGO.AddComponent<BridgeClient>();
-            bridgeClient.Init(new Simulator.Bridge.Ros.RosApolloBridgeFactory());
-            bridgeClient.Connect("localhost", 9090);
+            bridgeClient.Init(BridgePlugins.Get(BridgePlugins.GetNameFromFactory(typeof(Simulator.Bridge.Ros.RosApolloBridgeFactory))));
+            bridgeClient.Connect("localhost:9090");
 
             var sensorsController = config.AgentGO.GetComponent<SensorsController>();
             if (sensorsController == null)

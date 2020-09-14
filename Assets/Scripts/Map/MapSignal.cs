@@ -9,6 +9,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEditor;
 using System.Linq;
 using Simulator.Utilities;
 using Simulator.Controllable;
@@ -23,7 +24,7 @@ namespace Simulator.Map
     {
         public bool Spawned { get; set; } = false;
         public string UID { get; set; }
-        public uint ID;
+        public uint SeqId;
         public Vector3 boundOffsets = new Vector3();
         public Vector3 boundScale = new Vector3();
         public List<SignalData> signalData = new List<SignalData>();
@@ -32,7 +33,19 @@ namespace Simulator.Map
         public SignalType signalType = SignalType.MIX_3_VERTICAL;
         private Coroutine SignalCoroutine;
         private MessagesManager messagesManager;
-        public string id { get; set; }
+
+        [SerializeField] private string _id;
+        public string id
+        {
+            get { return _id; }
+            set
+            {
+#if UNITY_EDITOR
+                Undo.RecordObject(this, "Changed signal ID");
+#endif
+                _id = value;
+            }
+        }
 
         public string Key => UID;
 

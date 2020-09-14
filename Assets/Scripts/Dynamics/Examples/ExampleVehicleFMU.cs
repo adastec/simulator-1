@@ -15,6 +15,9 @@ namespace Simulator.FMU
     {
         public Rigidbody RB { get; set; }
 
+        public Transform BaseLink { get { return BaseLinkTransform; } }
+        public Transform BaseLinkTransform;
+
         public float AccellInput { get; set; } = 0f;
         public float SteerInput { get; set; } = 0f;
 
@@ -135,7 +138,7 @@ namespace Simulator.FMU
             }
 
             collider.GetWorldPose(out Vector3 position, out Quaternion rotation);
-
+            Debug.Log("Set the rotation to:" + rotation);
             visual.transform.position = position;
             visual.transform.rotation = rotation;
         }

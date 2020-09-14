@@ -249,7 +249,6 @@ public class SimulatorManager : MonoBehaviour
         WireframeBoxes = gameObject.AddComponent<WireframeBoxes>();
         if (Loader.Instance != null) TimeManager.Initialize(Loader.Instance.Network.MessagesManager);
         Sensors.Initialize();
-        Loader.ResetMaterials(); // TODO remove Editor hack for 2019.3.3 bug once fixed
         IsInitialized = true;
     }
 
@@ -363,10 +362,7 @@ public class SimulatorManager : MonoBehaviour
     void InitSegmenationColors()
     {
         var renderers = new List<Renderer>(1024);
-        var sharedMaterials = new List<Material>(8);
         var materials = new List<Material>(8);
-
-        var mapping = new Dictionary<Material, Material>();
 
         foreach (var item in SegmentationColors)
         {
@@ -377,47 +373,7 @@ public class SimulatorManager : MonoBehaviour
                 obj.GetComponentsInChildren(true, renderers);
                 renderers.ForEach(renderer =>
                 {
-                    if (item.IsInstanceSegmenation)
-                    {
-                        renderer.GetMaterials(materials);
-                    }
-                    else
-                    {
-                        if (Application.isEditor)
-                        {
-                            renderer.GetSharedMaterials(sharedMaterials);
-                            renderer.GetMaterials(materials);
-
-                            Debug.Assert(sharedMaterials.Count == materials.Count);
-
-                            for (int i = 0; i < materials.Count; i++)
-                            {
-                                if (sharedMaterials[i] == null)
-                                {
-                                    Debug.LogError($"{renderer.gameObject.name} has null material", renderer.gameObject);
-                                }
-                                else
-                                {
-                                    if (mapping.TryGetValue(sharedMaterials[i], out var mat))
-                                    {
-                                        DestroyImmediate(materials[i]);
-                                        materials[i] = mat;
-                                    }
-                                    else
-                                    {
-                                        mapping.Add(sharedMaterials[i], materials[i]);
-                                    }
-                                }
-                            }
-
-                            renderer.materials = materials.ToArray();
-                        }
-                        else
-                        {
-                            renderer.GetSharedMaterials(materials);
-                        }
-                    }
-
+                    renderer.GetMaterials(materials);
                     materials.ForEach(material =>
                     {
                         if (material != null)
@@ -450,8 +406,6 @@ public class SimulatorManager : MonoBehaviour
     {
         var renderers = new List<Renderer>(1024);
         var materials = new List<Material>(8);
-
-        var mapping = new Dictionary<Material, Material>();
 
         foreach (var item in SegmentationColors)
         {

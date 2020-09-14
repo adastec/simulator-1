@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2019 LG Electronics, Inc.
+ * Copyright (c) 2019-2020 LG Electronics, Inc.
  *
  * This software contains code licensed as described in LICENSE.
  *
@@ -43,12 +43,15 @@ namespace Simulator.Api.Commands
                     wp.Add(new WalkWaypoint()
                     {
                         Position = waypoints[i]["position"].ReadVector3(),
+                        Speed = waypoints[i]["speed"].AsFloat,
                         Idle = waypoints[i]["idle"].AsFloat,
                         TriggerDistance = waypoints[i]["trigger_distance"].AsFloat,
+                        Trigger = DeserializeTrigger(waypoints[i]["trigger"])
                     });
                 }
 
                 ped.FollowWaypoints(wp, loop);
+                api.RegisterAgentWithWaypoints(ped.gameObject);
                 api.SendResult(this);
                 SIM.LogAPI(SIM.API.FollowWaypoints, "Pedestrian");
             }
@@ -56,6 +59,25 @@ namespace Simulator.Api.Commands
             {
                 api.SendError(this, $"Agent '{uid}' not found");
             }
+        }
+
+        private WaypointTrigger DeserializeTrigger(JSONNode data)
+        {
+            if (data == null)
+                return null;
+            var effectorsNode = data["effectors"].AsArray;
+            var trigger = new WaypointTrigger();
+            trigger.Effectors = new List<TriggerEffector>();
+            for (int i = 0; i < effectorsNode.Count; i++)
+            {
+                var typeName = effectorsNode[i]["type_name"];
+                var newEffector = TriggersManager.GetEffectorOfType(typeName);
+                newEffector.DeserializeProperties(effectorsNode[i]["parameters"]);
+                trigger.Effectors.Add(newEffector);
+            }
+
+            return trigger;
+
         }
     }
 }

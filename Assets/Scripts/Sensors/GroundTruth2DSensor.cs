@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2019 LG Electronics, Inc.
+ * Copyright (c) 2019-2020 LG Electronics, Inc.
  *
  * This software contains code licensed as described in LICENSE.
  *
@@ -62,8 +62,8 @@ namespace Simulator.Sensors
 
         private float degHFOV;  // Horizontal Field of View, in degree
 
-        private IBridge Bridge;
-        private IWriter<Detected2DObjectData> Writer;
+        private BridgeInstance Bridge;
+        private Publisher<Detected2DObjectData> Publish;
 
         private Camera Camera;
         
@@ -109,10 +109,10 @@ namespace Simulator.Sensors
             cameraRangeTrigger.SetCallbacks(OnCollider);
         }
 
-        public override void OnBridgeSetup(IBridge bridge)
+        public override void OnBridgeSetup(BridgeInstance bridge)
         {
             Bridge = bridge;
-            Writer = Bridge.AddWriter<Detected2DObjectData>(Topic);
+            Publish = Bridge.AddPublisher<Detected2DObjectData>(Topic);
         }
 
         void OnDestroy()
@@ -131,7 +131,7 @@ namespace Simulator.Sensors
                 }
                 nextSend = Time.time + 1.0f / Frequency;
 
-                Writer.Write(new Detected2DObjectData()
+                Publish(new Detected2DObjectData()
                 {
                     Frame = Frame,
                     Sequence = seqId++,
@@ -141,6 +141,13 @@ namespace Simulator.Sensors
             }
 
             Visualized = Detected.Values.ToArray();
+        }
+
+        private void FixedUpdate()
+        {
+            // Detected is updated OnClilider which is called in OnTriggerStay.
+            // So we clear it in FixedUpdate() which happens before OnTriggerStay.
+            // Details of excution order can be found at: https://docs.unity3d.com/Manual/ExecutionOrder.html
             Detected.Clear();
         }
 
@@ -336,6 +343,10 @@ namespace Simulator.Sensors
 
                 AAWireBoxes.Draw(min, max, color);
             }
+            var test_min = new Vector2(Width / 2 - 10, Height / 2 - 10);
+            var test_max = new Vector2(Width / 2 + 10, Height / 2 + 10);
+
+            AAWireBoxes.Draw(test_min, test_max, Color.red);
             visualizer.UpdateRenderTexture(Camera.activeTexture, Camera.aspect);
         }
 

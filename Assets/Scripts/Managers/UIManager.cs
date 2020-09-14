@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2019 LG Electronics, Inc.
+ * Copyright (c) 2019-2020 LG Electronics, Inc.
  *
  * This software contains code licensed as described in LICENSE.
  *
@@ -17,7 +17,6 @@ using Simulator.Sensors;
 using Simulator.Components;
 using System.Text;
 using System.Collections.Concurrent;
-using System.Linq;
 
 public class UIManager : MonoBehaviour
 {
@@ -123,7 +122,7 @@ public class UIManager : MonoBehaviour
     public Text CameraStateText;
 
     private StringBuilder sb = new StringBuilder();
-
+    private GameObject CurrentAgent;
     ConcurrentQueue<Action> MainThreadActions = new ConcurrentQueue<Action>();
 
     private bool _uiActive = false;
@@ -148,7 +147,10 @@ public class UIManager : MonoBehaviour
         PauseButton.gameObject.SetActive(false);
         EnvironmentButton.gameObject.SetActive(false);
         MenuHolder.SetActive(false);
-
+#if UNITY_EDITOR //ADASTEC
+        EnvironmentButton.gameObject.SetActive(true);
+        MenuHolder.SetActive(true);
+#endif
         var config = Loader.Instance?.SimConfig;
         if (config != null)
         {
@@ -395,6 +397,7 @@ public class UIManager : MonoBehaviour
         CurrentBridgeSubscriberInfo.Clear();
         BridgeClient = null;
         BridgeClientStatusText = null;
+
         var temp = BridgeContent.GetComponentsInChildren<InfoTextOnClick>();
         for (int i = 0; i < temp.Length; i++)
         {
@@ -406,9 +409,9 @@ public class UIManager : MonoBehaviour
         {
             CreateBridgeInfo($"Vehicle: {agent.name}");
             CreateBridgeInfo($"Bridge Status: {BridgeClient.BridgeStatus}", true);
-            CreateBridgeInfo($"Address: {BridgeClient.PrettyAddress.ToString()}");
+            CreateBridgeInfo($"Address: {BridgeClient.Connection}");
 
-            foreach (var pub in BridgeClient.Bridge.TopicPublishers)
+            foreach (var pub in BridgeClient.Bridge.PublisherData)
             {
                 sb.Clear();
                 sb.AppendLine($"PUB:");
@@ -422,7 +425,7 @@ public class UIManager : MonoBehaviour
                 }
             }
 
-            foreach (var sub in BridgeClient.Bridge.TopicSubscriptions)
+            foreach (var sub in BridgeClient.Bridge.SubscriberData)
             {
                 sb.Clear();
                 sb.AppendLine($"SUB:");
@@ -472,54 +475,34 @@ public class UIManager : MonoBehaviour
             return;
         }
 
-        foreach (var pub in BridgeClient.Bridge.TopicPublishers)
+        foreach (var pub in BridgeClient.Bridge.PublisherData)
         {
             if (CurrentBridgePublisherInfo.ContainsKey(pub.Topic))
             {
-                Text ui = CurrentBridgePublisherInfo[pub.Topic];
-                if (pub.ElapsedTime >= 1 && pub.Count > pub.StartCount)
-                {
-                    pub.Frequency = (pub.Count - pub.StartCount) / pub.ElapsedTime;
-                    pub.StartCount = pub.Count;
-                    pub.ElapsedTime = 0f;
-                }
-                else
-                {
-                    pub.ElapsedTime += Time.unscaledDeltaTime;
-                }
-
                 sb.Clear();
                 sb.AppendLine($"PUB:");
                 sb.AppendLine($"Topic: {pub.Topic}");
                 sb.AppendLine($"Type: {pub.Type}");
                 sb.AppendLine($"Frequency: {pub.Frequency:F2} Hz");
                 sb.AppendLine($"Count: {pub.Count}");
+
+                var ui = CurrentBridgePublisherInfo[pub.Topic];
                 ui.text = sb.ToString();
             }
         }
 
-        foreach (var sub in BridgeClient.Bridge.TopicSubscriptions)
+        foreach (var sub in BridgeClient.Bridge.SubscriberData)
         {
             if (CurrentBridgeSubscriberInfo.ContainsKey(sub.Topic))
             {
-                Text ui = CurrentBridgeSubscriberInfo[sub.Topic];
-                if (sub.ElapsedTime >= 1 && sub.Count > sub.StartCount)
-                {
-                    sub.Frequency = (sub.Count - sub.StartCount) / sub.ElapsedTime;
-                    sub.StartCount = sub.Count;
-                    sub.ElapsedTime = 0f;
-                }
-                else
-                {
-                    sub.ElapsedTime += Time.unscaledDeltaTime;
-                }
-
                 sb.Clear();
                 sb.AppendLine($"SUB:");
                 sb.AppendLine($"Topic: {sub.Topic}");
                 sb.AppendLine($"Type: {sub.Type}");
                 sb.AppendLine($"Frequency: {sub.Frequency:F2} Hz");
                 sb.AppendLine($"Count: {sub.Count}");
+
+                var ui = CurrentBridgeSubscriberInfo[sub.Topic];
                 ui.text = sb.ToString();
             }
         }
@@ -527,6 +510,22 @@ public class UIManager : MonoBehaviour
 
     private void OnAgentChange(GameObject agent)
     {
+        if (CurrentAgent == null)
+        {
+            CurrentAgent = agent;
+        }
+        else
+        {
+            if (CurrentAgent == agent)
+            {
+                return;
+            }
+            else
+            {
+                CurrentAgent = agent;
+            }
+        }
+
         for (int i = 0; i < visualizerToggles.Count; i++)
         {
             Destroy(visualizerToggles[i].gameObject);
@@ -735,15 +734,16 @@ public class UIManager : MonoBehaviour
         visualizerToggles.Add(tog);
         tog.VisualizerNameText.text = sensor.Name;
         tog.Sensor = sensor;
-
+        
         var vis = Instantiate(VisualizerPrefab, VisualizerCanvasGO.transform);
         visualizers.Add(vis);
         vis.transform.localPosition = Vector2.zero;
-        vis.Init(sensor.Name);
         vis.Sensor = sensor;
+        vis.Init(sensor.Name);
         vis.VisualizerToggle = tog;
         vis.gameObject.SetActive(false);
         tog.Visualizer = vis;
+        tog.Init(sensor.name, sensor.ParentTransform);
 
         if (!VisualizerCanvasGO.activeInHierarchy)
         {
@@ -770,6 +770,7 @@ public class UIManager : MonoBehaviour
     private void DisableAllOnClick()
     {
         visualizers.ForEach(x => x.gameObject.SetActive(false));
+        visualizerToggles.ForEach(x => x.ResetToggle());
     }
 
     public void ToggleVisualizers()

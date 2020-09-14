@@ -26,12 +26,14 @@ public class NPCWaypointBehaviour : NPCBehaviourBase
     public List<float> LaneTime;
     public List<bool> LaneDeactivate;
     public List<float> LaneTriggerDistance;
+    public List<WaypointTrigger> LaneTriggers;
     public bool WaypointLoop;
 
     // targeting
     public Vector3 CurrentTarget;
     public int CurrentIndex = 0;
     public bool CurrentDeactivate = false;
+    private int CurrentLoopIndex = 0;
 
     private Coroutine IdleCoroutine;
     private Coroutine MoveCoroutine;
@@ -92,6 +94,7 @@ public class NPCWaypointBehaviour : NPCBehaviourBase
         rb.angularVelocity = Vector3.zero;
         rb.velocity = Vector3.zero;
         CurrentIndex = 0;
+        CurrentLoopIndex = 0;
         CurrentDeactivate = LaneDeactivate[CurrentIndex];
         FixedUpdateManager.StopAllCoroutines();
         TriggerCoroutine = null;
@@ -114,6 +117,7 @@ public class NPCWaypointBehaviour : NPCBehaviourBase
         LaneDeactivate = waypoints.Select(wp => wp.Deactivate).ToList();
         LaneTriggerDistance = waypoints.Select(wp => wp.TriggerDistance).ToList();
         LaneTime = waypoints.Select(wp => wp.TimeStamp).ToList();
+        LaneTriggers = waypoints.Select(wp => wp.Trigger).ToList();
 
         InitNPC();
 
@@ -142,9 +146,14 @@ public class NPCWaypointBehaviour : NPCBehaviourBase
         LaneDeactivate.Insert(0, false);
         LaneTriggerDistance.Insert(0, 0f);
         LaneTime.Insert(0, 0f);
+        LaneTriggers.Insert(0, null);
 
-        float initialMoveDuration = (LaneData[1] - LaneData[0]).magnitude / LaneSpeed[1];
-
+        float initialMoveDuration = 0;
+        if (LaneSpeed[1] != 0)
+        {
+            initialMoveDuration = (LaneData[1] - LaneData[0]).magnitude / LaneSpeed[1];
+        }
+        
         for (int i = 1; i < LaneTime.Count; i++)
         {
             LaneTime[i] += initialMoveDuration;
@@ -159,18 +168,25 @@ public class NPCWaypointBehaviour : NPCBehaviourBase
         if (CurrentIndex < LaneData.Count)
         {
             CurrentTarget = LaneData[CurrentIndex];
+            controller.MovementSpeed = LaneSpeed[CurrentIndex];
         }
 
         if (CurrentIndex == LaneData.Count)
         {
+            var api = ApiManager.Instance;
             if (WaypointLoop)
             {
+                if (CurrentLoopIndex == 0 && api != null)
+                    api.AgentTraversedWaypoints(gameObject);
+                CurrentLoopIndex++;
                 rb.MovePosition(InitPos);
                 rb.MoveRotation(InitRot);
                 InitNPC();
             }
             else
             {
+                if (api != null)
+                    api.AgentTraversedWaypoints(gameObject);
                 WaypointState = WaypointDriveState.Despawn;
                 FixedUpdateManager.StopAllCoroutines();
                 TriggerCoroutine = null;
@@ -217,13 +233,24 @@ public class NPCWaypointBehaviour : NPCBehaviourBase
 
         if (CurrentIndex <= LaneData.Count - 1)
         {
-            ApiManager.Instance?.AddWaypointReached(gameObject, CurrentIndex);
+            //LaneData includes npc position at 0 index, waypoints starts from index 1
+            //Because of that index has to be lowered by 1 before passing to the API
+            if (ApiManager.Instance != null)
+                ApiManager.Instance.AddWaypointReached(gameObject, CurrentIndex-1);
 
-            // trigger
+            // apply simple distance trigger
             if (LaneTriggerDistance[CurrentIndex] > 0)
             {
                 WaypointState = WaypointDriveState.Trigger;
                 yield return TriggerCoroutine = FixedUpdateManager.StartCoroutine(NPCTriggerIE());
+            }
+
+            // apply complex triggers
+            if (CurrentIndex < LaneTriggers.Count && LaneTriggers[CurrentIndex] != null)
+            {
+                WaypointState = WaypointDriveState.Trigger;
+                yield return TriggerCoroutine = FixedUpdateManager.StartCoroutine(LaneTriggers[CurrentIndex].Apply(controller));
+                TriggerCoroutine = null;
             }
 
             // deactivate
@@ -239,6 +266,7 @@ public class NPCWaypointBehaviour : NPCBehaviourBase
             {
                 WaypointState = WaypointDriveState.Despawn;
                 gameObject.SetActive(false);
+                MoveCoroutine = null;
                 yield break;
             }
             else

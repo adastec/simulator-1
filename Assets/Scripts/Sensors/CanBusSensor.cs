@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2019 LG Electronics, Inc.
+ * Copyright (c) 2019-2020 LG Electronics, Inc.
  *
  * This software contains code licensed as described in LICENSE.
  *
@@ -25,8 +25,8 @@ namespace Simulator.Sensors
         uint SendSequence;
         float NextSend;
 
-        IBridge Bridge;
-        IWriter<CanBusData> Writer;
+        BridgeInstance Bridge;
+        Publisher<CanBusData> Publish;
 
         Rigidbody RigidBody;
         IVehicleDynamics Dynamics;
@@ -34,7 +34,7 @@ namespace Simulator.Sensors
         MapOrigin MapOrigin;
 
         CanBusData msg;
-        
+
         public override SensorDistributionType DistributionType => SensorDistributionType.LowLoad;
 
         private void Awake()
@@ -45,10 +45,10 @@ namespace Simulator.Sensors
             MapOrigin = MapOrigin.Find();
         }
 
-        public override void OnBridgeSetup(IBridge bridge)
+        public override void OnBridgeSetup(BridgeInstance bridge)
         {
             Bridge = bridge;
-            Writer = bridge.AddWriter<CanBusData>(Topic);
+            Publish = bridge.AddPublisher<CanBusData>(Topic);
         }
 
         public void Start()
@@ -72,6 +72,9 @@ namespace Simulator.Sensors
             float speed = RigidBody.velocity.magnitude;
 
             var gps = MapOrigin.GetGpsLocation(transform.position);
+
+            var orientation = transform.rotation;
+            orientation.Set(-orientation.z, orientation.x, -orientation.y, orientation.w); // converting to right handed xyz
 
             msg = new CanBusData()
             {
@@ -107,13 +110,13 @@ namespace Simulator.Sensors
                 Longitude = gps.Longitude,
                 Altitude = gps.Altitude,
 
-                Orientation = transform.rotation,
+                Orientation = orientation,
                 Velocity = RigidBody.velocity,
             };
 
             if (Bridge != null && Bridge.Status == Status.Connected)
             {
-                Writer.Write(msg, null);
+                Publish(msg);
             }
         }
 

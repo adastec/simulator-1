@@ -1,10 +1,11 @@
 /**
- * Copyright (c) 2019 LG Electronics, Inc.
+ * Copyright (c) 2019-2020 LG Electronics, Inc.
  *
  * This software contains code licensed as described in LICENSE.
  *
  */
 
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -26,7 +27,7 @@ public enum PedestrianState
     Crossing
 };
 
-public class PedestrianController : DistributedComponent, IGloballyUniquelyIdentified
+public class PedestrianController : DistributedComponent, ITriggerAgent, IGloballyUniquelyIdentified
 {
     public enum ControlType
     {
@@ -39,19 +40,22 @@ public class PedestrianController : DistributedComponent, IGloballyUniquelyIdent
     public ControlType Control = ControlType.Automatic;
 
     List<Vector3> targets;
+    List<float> speeds;
     List<float> idle;
     List<float> triggerDistance;
+    List<WaypointTrigger> laneTriggers;
     private float CurrentTriggerDistance;
+    private WaypointTrigger CurrentTrigger;
     private float CurrentIdle;
     bool waypointLoop;
 
     private int CurrentTargetIndex = 0;
     private int NextTargetIndex = 0;
+    private int CurrentLoopIndex = 0;
     public float idleTime = 0f;
     public float targetRange = 1f;
 
     private Vector3 NextTargetPos;
-    private Transform NextTargetT;
     private NavMeshAgent agent;
     private Animator anim;
     private PedestrianState thisPedState = PedestrianState.None;
@@ -69,12 +73,17 @@ public class PedestrianController : DistributedComponent, IGloballyUniquelyIdent
     private Vector3 CurrentTurn;
     private float CurrentSpeed;
     public Vector3 CurrentVelocity;
+    public Vector3 CurrentAcceleration;
     public Vector3 CurrentAngularVelocity;
     private Vector3 LastRBPosition;
     private Quaternion LastRBRotation;
     public uint GTID { get; set; }
     public string GUID { get; set; }
     public Bounds Bounds;
+
+    public Transform AgentTransform => transform;
+    public float MovementSpeed { get; private set; }
+    public Vector3 Acceleration => CurrentAcceleration;
 
     public PedestrianState ThisPedState
     {
@@ -141,13 +150,16 @@ public class PedestrianController : DistributedComponent, IGloballyUniquelyIdent
         agent.avoidancePriority = 0;
 
         targets = waypoints.Select(wp => wp.Position).ToList();
+        speeds = waypoints.Select(wp => wp.Speed).ToList();
         idle = waypoints.Select(wp => wp.Idle).ToList();
         triggerDistance = waypoints.Select(wp => wp.TriggerDistance).ToList();
+        laneTriggers = waypoints.Select(wp => wp.Trigger).ToList();
 
         CurrentIdle = idle[0];
         CurrentTriggerDistance = triggerDistance[0];
         CurrentTargetIndex = 0;
         NextTargetIndex = 0;
+        CurrentLoopIndex = 0;
 
         Control = ControlType.Waypoints;
         waypointLoop = loop;
@@ -174,6 +186,22 @@ public class PedestrianController : DistributedComponent, IGloballyUniquelyIdent
         ThisPedState = PedestrianState.None;
         Control = ControlType.Manual;
     }
+
+    public void SetSpeed(float speed)
+    {
+        switch (Control)
+        {
+            case ControlType.Automatic:
+                LinearSpeed = speed;
+                break;
+            case ControlType.Waypoints:
+                speeds[NextTargetIndex] = speed;
+                break;
+            case ControlType.Manual:
+                // TODO
+                break;
+        }
+    }
     #endregion
 
     public void InitPed(Vector3 position, List<Vector3> pedSpawnerTargets, int seed)
@@ -189,7 +217,9 @@ public class PedestrianController : DistributedComponent, IGloballyUniquelyIdent
         Name = transform.GetChild(0).name;
 
         if (RandomGenerator.Next(2) == 0)
+        {
             targets.Reverse();
+        }
 
         agent.avoidancePriority = RandomGenerator.Next(1, 100); // set to 0 for no avoidance
 
@@ -261,6 +291,7 @@ public class PedestrianController : DistributedComponent, IGloballyUniquelyIdent
 
                 CurrentTurn = direction;
                 CurrentSpeed = LinearSpeed;
+                MovementSpeed = CurrentSpeed;
                 ThisPedState = PedestrianState.Walking;
 
                 if (direction.magnitude < Accuracy)
@@ -318,7 +349,8 @@ public class PedestrianController : DistributedComponent, IGloballyUniquelyIdent
             Vector3 direction = targetPos - rb.position;
 
             CurrentTurn = direction;
-            CurrentSpeed = LinearSpeed;
+            CurrentSpeed = speeds[NextTargetIndex];
+            MovementSpeed = CurrentSpeed;
             ThisPedState = PedestrianState.Walking;
 
             if (direction.magnitude < Accuracy)
@@ -326,12 +358,16 @@ public class PedestrianController : DistributedComponent, IGloballyUniquelyIdent
                 CurrentWP++;
                 if (CurrentWP >= corners.Length)
                 {
-                    // When waypoint is reached, Ped waits for trigger (if any), then idles (if any), then moves on to next waypoint
-                    ApiManager.Instance?.AddWaypointReached(gameObject, NextTargetIndex);
+                    var api = ApiManager.Instance;
+                    if (api != null) // When waypoint is reached, Ped waits for trigger (if any), then idles (if any), then moves on to next waypoint
+                    {
+                        api.AddWaypointReached(gameObject, NextTargetIndex);
+                    }
 
                     Path.ClearCorners();
                     CurrentIdle = idle[NextTargetIndex];
                     CurrentTriggerDistance = triggerDistance[NextTargetIndex];
+                    CurrentTrigger = laneTriggers.Count > NextTargetIndex ? laneTriggers[NextTargetIndex] : null;
                     CurrentTargetIndex = NextTargetIndex;
                     NextTargetIndex = GetNextTargetIndex(CurrentTargetIndex);
                     CurrentWP = 0;
@@ -341,14 +377,39 @@ public class PedestrianController : DistributedComponent, IGloballyUniquelyIdent
                         ThisPedState = PedestrianState.Idle;
                         Coroutines[(int)CoroutineID.WaitForAgent] = FixedUpdateManager.StartCoroutine(EvaluateEgoToTrigger(NextTargetPos, CurrentTriggerDistance));
                     }
+
+                    // apply complex triggers
+                    else if (CurrentTrigger != null)
+                    {
+                        var previousState = thisPedState;
+                        var callback = new Action(() =>
+                        {
+                            ThisPedState = previousState;
+                        });
+                        ThisPedState = PedestrianState.Idle;
+                        Coroutines[(int)CoroutineID.WaitForAgent] = FixedUpdateManager.StartCoroutine(
+                            CurrentTrigger.Apply(this, callback));
+                    }
+                    
                     else if (ThisPedState == PedestrianState.Walking && CurrentIdle > 0f)
                     {
                         Coroutines[(int)CoroutineID.IdleAnimation] = FixedUpdateManager.StartCoroutine(IdleAnimation(CurrentIdle));
                     }
 
-                    if (CurrentTargetIndex == targets.Count - 1 && !waypointLoop)
+                    if (CurrentTargetIndex == targets.Count - 1)
                     {
-                        WalkRandomly(false);
+                        if (!waypointLoop)
+                        {
+                            if (api != null)
+                                api.AgentTraversedWaypoints(gameObject);
+                            WalkRandomly(false);
+                        }
+                        else
+                        {
+                            if (CurrentLoopIndex == 0 && api != null)
+                                api.AgentTraversedWaypoints(gameObject);
+                            CurrentLoopIndex++;
+                        }
                     }
                 }
             }
@@ -413,14 +474,16 @@ public class PedestrianController : DistributedComponent, IGloballyUniquelyIdent
     {
         if (CurrentSpeed != 0f)
         {
-            rb.MovePosition(rb.position + transform.forward * CurrentSpeed * Time.fixedDeltaTime);
+            rb.MovePosition(rb.position + transform.forward * (CurrentSpeed * Time.fixedDeltaTime));
         }
         else
         {
             rb.velocity = Vector3.zero;
         }
 
+        var previousVelocity = CurrentVelocity;
         CurrentVelocity = (rb.position - LastRBPosition) / Time.fixedDeltaTime;
+        CurrentAcceleration = CurrentVelocity - previousVelocity;
         LastRBPosition = rb.position;
     }
 
@@ -456,10 +519,25 @@ public class PedestrianController : DistributedComponent, IGloballyUniquelyIdent
     {
         if (agent == null || anim == null) return;
 
-        if (ThisPedState == PedestrianState.Walking || ThisPedState == PedestrianState.Crossing) 
-            anim.SetFloat("speed", LinearSpeed);
-        else 
+        if (ThisPedState == PedestrianState.Walking || ThisPedState == PedestrianState.Crossing)
+        {
+            switch (Control)
+            {
+                case ControlType.Automatic:
+                    anim.SetFloat("speed", LinearSpeed);
+                    break;
+                case ControlType.Waypoints:
+                    anim.SetFloat("speed", speeds[NextTargetIndex]);
+                    break;
+                case ControlType.Manual: // TODO
+                    break;
+            }
+            
+        }
+        else
+        {
             anim.SetFloat("speed", 0.0f);
+        }
     }
 
     private int GetNextTargetIndex(int index)
@@ -544,8 +622,10 @@ public class PedestrianController : DistributedComponent, IGloballyUniquelyIdent
     {
         ThisPedState = distributedMessage.Content.PopEnum<PedestrianState>();
         //Validate animator, as snapshot can be received before it is initialized
-        if (anim != null && anim.isActiveAndEnabled && anim.runtimeAnimatorController!=null)
+        if (anim != null && anim.isActiveAndEnabled && anim.runtimeAnimatorController != null)
+        {
             SetAnimationControllerParameters();
+        }
     }
     #endregion
 }

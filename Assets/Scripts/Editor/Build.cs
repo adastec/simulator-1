@@ -25,6 +25,8 @@ using System.Text;
 using Simulator.FMU;
 using Simulator.PointCloud.Trees;
 using System.Text.RegularExpressions;
+using System.Threading;
+using Simulator.Bridge;
 
 namespace Simulator.Editor
 {
@@ -76,7 +78,14 @@ namespace Simulator.Editor
             {
                 string header = bundlePath;
                 GUILayout.Label(header, EditorStyles.boldLabel);
-                EditorGUILayout.HelpBox($"Following {bundlePath} were automatically detected:", UnityEditor.MessageType.None);
+                if (entries.Count == 0)
+                {
+                    EditorGUILayout.HelpBox($"No {bundlePath} are available", UnityEditor.MessageType.None);
+                }
+                else
+                {
+                    EditorGUILayout.HelpBox($"Following {bundlePath} were automatically detected:", UnityEditor.MessageType.None);
+                }
                 scroll = EditorGUILayout.BeginScrollView(scroll);
 
                 if (entries.Count != 0)
@@ -128,7 +137,7 @@ namespace Simulator.Editor
                     }
                     if (!entries.ContainsKey(name))
                     {
-                        var extension = bundleType == BundleConfig.BundleTypes.Environment ? SceneExtension : PrefabExtension;
+                        var extension = bundleType == BundleConfig.BundleTypes.Environment ? SceneExtension : bundleType == BundleConfig.BundleTypes.Bridge ? ScriptExtension : PrefabExtension;
                         var fullPath = Path.Combine(sourcePath, name, $"{name}.{extension}");
                         
                         // NPC type can be both prefab and behaviour script
@@ -174,12 +183,15 @@ namespace Simulator.Editor
                     authorName = "",
                     authorUrl = "",
                     fmuName = "",
+                    bridgeDataTypes = Array.Empty<string>(),
                 };
 
                 if (bundleType == BundleConfig.BundleTypes.Vehicle)
                 {
                     var info = AssetDatabase.LoadAssetAtPath<GameObject>(prefabEntry.mainAssetFile).GetComponent<VehicleInfo>();
                     var fmu = AssetDatabase.LoadAssetAtPath<GameObject>(prefabEntry.mainAssetFile).GetComponent<VehicleFMU>();
+                    var baseLink = AssetDatabase.LoadAssetAtPath<GameObject>(prefabEntry.mainAssetFile).GetComponent<BaseLink>();
+
                     if (info == null)
                     {
                         throw new Exception($"Build failed: Vehicle info on {prefabEntry.mainAssetFile} not found. Please add a VehicleInfo component and rebuild.");
@@ -187,6 +199,9 @@ namespace Simulator.Editor
                     manifest.licenseName = info.LicenseName;
                     manifest.description = info.Description;
                     manifest.fmuName = fmu == null ? "" : fmu.FMUData.Name;
+                    manifest.baseLink = baseLink != null ?
+                        new double[] { baseLink.transform.position.x, baseLink.transform.position.y, baseLink.transform.position.z } : // rotation
+                        new double[] { 0, 0, 0 };
                 }
                 return manifest;
             }
@@ -284,14 +299,16 @@ namespace Simulator.Editor
                     var asmDefPath = Path.Combine(BundleConfig.ExternalBase, Things, $"Simulator.{Things}.asmdef");
                     AsmdefBody asmDef = null;
                     if (File.Exists(asmDefPath))
+                    {
                         asmDef = JsonUtility.FromJson<AsmdefBody>(File.ReadAllText(asmDefPath));
+                    }
 
 
                     var buildArtifacts = new List<(string source, string archiveName)>();
                     bool mainAssetIsScript = entry.mainAssetFile.EndsWith("."+ScriptExtension);
                     try
                     {
-                        Debug.Log($"building asset:{entry.mainAssetFile} -> " + Path.Combine(outputFolder, $"{thing}_{entry.name}"));
+                        Debug.Log($"Building asset: {entry.mainAssetFile} -> " + Path.Combine(outputFolder, $"{thing}_{entry.name}"));
 
                         if (!File.Exists(Path.Combine(Application.dataPath, "..", entry.mainAssetFile)))
                         {
@@ -310,7 +327,8 @@ namespace Simulator.Editor
                         }
 
                         AssetDatabase.Refresh();
-                        if (!mainAssetIsScript) {
+                        if (!mainAssetIsScript)
+                        {
                             var textureBuild = new AssetBundleBuild()
                             {
                                 assetBundleName = $"{manifest.assetGuid}_{thing}_textures",
@@ -331,7 +349,8 @@ namespace Simulator.Editor
                                 assetNames = new[] { entry.mainAssetFile },
                             };
 
-                            var builds = new[] {
+                            var builds = new[]
+                            {
                                 (build: linuxBuild,     platform: UnityEditor.BuildTarget.StandaloneLinux64),
                                 (build: windowsBuild,   platform: UnityEditor.BuildTarget.StandaloneWindows64)
                             };
@@ -411,7 +430,10 @@ namespace Simulator.Editor
                                 return;
                             }
 
-                            while (assemblyBuilder.status != AssemblyBuilderStatus.Finished) { }
+                            while (assemblyBuilder.status != AssemblyBuilderStatus.Finished)
+                            {
+                                Thread.Sleep(1);
+                            }
                         }
 
                         if (manifest.fmuName != "")
@@ -442,6 +464,28 @@ namespace Simulator.Editor
                                     }
                                 }
                             }
+                        }
+
+                        if (bundleType == BundleConfig.BundleTypes.Bridge)
+                        {
+                            // gather information about bridge plugin
+
+                            IBridgeFactory bridgeFactory = null;
+                            foreach (var factoryType in BridgePlugins.GetBridgeFactories())
+                            {
+                                if (BridgePlugins.GetNameFromFactory(factoryType) == entry.name)
+                                {
+                                    bridgeFactory = (IBridgeFactory)Activator.CreateInstance(factoryType);
+                                    break;
+                                }
+                            }
+                            if (bridgeFactory == null)
+                            {
+                                throw new Exception($"Cannot find IBridgeFactory for {entry.name} bridge plugin");
+                            }
+
+                            var plugin = new BridgePlugin(bridgeFactory);
+                            manifest.bridgeDataTypes = plugin.GetSupportedDataTypes();
                         }
 
                         var manifestOutput = Path.Combine(outputFolder, "manifest");
@@ -588,6 +632,8 @@ namespace Simulator.Editor
                 data = new BundleData(BundleConfig.BundleTypes.Sensor);
                 buildGroups.Add(data.bundlePath, data);
                 data = new BundleData(BundleConfig.BundleTypes.Controllable);
+                buildGroups.Add(data.bundlePath, data);
+                data = new BundleData(BundleConfig.BundleTypes.Bridge);
                 buildGroups.Add(data.bundlePath, data);
             }
 
@@ -835,7 +881,7 @@ namespace Simulator.Editor
             Build build = new Build();
             build.Refresh();
 
-            var buildBundleParam = new Regex("^-build(Environment|Vehicle|Sensor|Controllable|NPC)s$");
+            var buildBundleParam = new Regex("^-build(Environment|Vehicle|Sensor|Controllable|NPC|Bridge)s$");
             int bundleSum = 0;
 
             var args = Environment.GetCommandLineArgs();
@@ -908,7 +954,9 @@ namespace Simulator.Editor
                         var val = match.Groups[1].Captures[0].Value;
                         var bundleType = (BundleConfig.BundleTypes) Enum.Parse(typeof(BundleConfig.BundleTypes), val);
                         if (i == args.Length - 1)
+                        {
                             throw new Exception($"-build{val} expects comma seperated environment names!");
+                        }
 
                         var bundleGroups = build.buildGroups.Values.Where(g => g.bundleType == bundleType);
                         i++;
@@ -942,7 +990,7 @@ namespace Simulator.Editor
 
             if (buildBundles && bundleSum == 0)
             {
-                throw new Exception($"No environments, vehicles, sensors or controllables to build");
+                throw new Exception($"No environments, vehicles, sensors, controllables or bridges to build");
             }
 
             Running = true;

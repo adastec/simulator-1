@@ -55,16 +55,27 @@ namespace Simulator.Sensors
         /// <see cref="RTHandle"/> pointing to depth texture.
         /// </summary>
         public RTHandle DepthHandle => depthRt;
+        
+        /// <summary>
+        /// Is this target a cube map?
+        /// </summary>
+        public bool IsCube { get; private set; }
+        
+        /// <summary>
+        /// Mask for cubemap faces used on this target.
+        /// </summary>
+        public int CubeFaceMask { get; private set; }
 
-        private SensorRenderTarget(int width, int height, bool cube)
+        private SensorRenderTarget(int width, int height, bool cube, GraphicsFormat colorFormat = GraphicsFormat.R8G8B8A8_UNorm)
         {
             currentWidth = width;
             currentHeight = height;
+            IsCube = cube;
 
             if (cube)
                 AllocCube();
             else
-                Alloc2D();
+                Alloc2D(colorFormat);
         }
 
         public static implicit operator RenderTexture(SensorRenderTarget target) => target.ColorTexture;
@@ -81,27 +92,57 @@ namespace Simulator.Sensors
         }
 
         /// <summary>
+        /// Creates new instance of <see cref="SensorRenderTarget"/> and allocates required resources. Uses 2D texture.
+        /// </summary>
+        /// <param name="width">Width (in pixels) of the texture.</param>
+        /// <param name="height">Height (in pixels) of the texture.</param>
+        /// /// <param name="colorFormat">GraphicsFormat of the color texture.</param>
+        public static SensorRenderTarget Create2D(int width, int height, GraphicsFormat colorFormat)
+        {
+            var instance = new SensorRenderTarget(width, height, false, colorFormat);
+            return instance;
+        }
+
+        /// <summary>
         /// Creates new instance of <see cref="SensorRenderTarget"/> and allocates required resources. Uses cube map.
         /// </summary>
         /// <param name="width">Width (in pixels) of the texture.</param>
         /// <param name="height">Height (in pixels) of the texture.</param>
         public static SensorRenderTarget CreateCube(int width, int height)
         {
-            var instance = new SensorRenderTarget(width, height, true);
+            var faceMask = 0;
+            faceMask |= 1 << (int)(CubemapFace.PositiveX);
+            faceMask |= 1 << (int)(CubemapFace.NegativeX);
+            faceMask |= 1 << (int)(CubemapFace.PositiveY);
+            faceMask |= 1 << (int)(CubemapFace.NegativeY);
+            faceMask |= 1 << (int)(CubemapFace.PositiveZ);
+            faceMask |= 1 << (int)(CubemapFace.NegativeZ);
+            return CreateCube(width, height, faceMask);
+        }
+
+        /// <summary>
+        /// Creates new instance of <see cref="SensorRenderTarget"/> and allocates required resources. Uses cube map.
+        /// </summary>
+        /// <param name="width">Width (in pixels) of the texture.</param>
+        /// <param name="height">Height (in pixels) of the texture.</param>
+        /// <param name="faceMask">Mask for cubemap faces that should be rendered.</param>
+        public static SensorRenderTarget CreateCube(int width, int height, int faceMask)
+        {
+            var instance = new SensorRenderTarget(width, height, true) {CubeFaceMask = faceMask};
             return instance;
         }
 
         /// <summary>
         /// Allocates color and depth textures for 2D render target.
         /// </summary>
-        private void Alloc2D()
+        private void Alloc2D(GraphicsFormat colorFormat)
         {
             colorRt = RTHandles.Alloc(
                 currentWidth,
                 currentHeight,
                 1,
                 DepthBits.None,
-                GraphicsFormat.R8G8B8A8_UNorm,
+                colorFormat,
                 dimension: TextureDimension.Tex2D,
                 useDynamicScale: true,
                 name: "SRT_Color",
@@ -138,7 +179,7 @@ namespace Simulator.Sensors
             depthRt = RTHandles.Alloc(
                 currentWidth,
                 currentHeight,
-                TextureXR.slices,
+                1,
                 DepthBits.Depth32,
                 GraphicsFormat.R32_UInt,
                 dimension: TextureDimension.Cube,

@@ -533,6 +533,10 @@ namespace Simulator.Editor
         {
             MapAnnotationData = new MapManagerData();
 
+            var allLanes = new HashSet<MapLane>(MapAnnotationData.GetData<MapLane>());
+            var areAllLanesWithBoundaries = Lanelet2MapExporter.AreAllLanesWithBoundaries(allLanes, true);
+            if (!areAllLanesWithBoundaries) return false;
+
             // Process lanes, intersections.
             MapAnnotationData.GetIntersections();
             MapAnnotationData.GetTrafficLanes();
@@ -550,7 +554,7 @@ namespace Simulator.Editor
             intersections = new List<MapIntersection>();
             laneSections = new List<MapLaneSection>();
             lineSegments = new List<MapLine>();
-            
+
             overlapIdToGameObjects = new Dictionary<string, List<GameObject>>();
             gameObjectToOverlapInfo = new Dictionary<GameObject, HD.ObjectOverlapInfo>();
             gameObjectToOverlapId = new Dictionary<GameObject, HD.Id>();
@@ -2401,7 +2405,7 @@ namespace Simulator.Editor
             }
         }
 
-        public List<Vector3> ComputeCenterLine(List<Vector3> leftLinePoints, List<Vector3> rightLinePoints)
+        public static List<Vector3> ComputeCenterLine(List<Vector3> leftLinePoints, List<Vector3> rightLinePoints)
         {
             List<Vector3> centerLinePoints = new List<Vector3>();
             var leftFirstPoint = leftLinePoints[0];
@@ -2498,7 +2502,7 @@ namespace Simulator.Editor
             return normalDir;
         }
 
-        void SplitLine(List<Vector3> positions, ref List<Vector3> splittedLinePoints, float resolution, int partitions, bool reverse=false)
+        static void SplitLine(List<Vector3> positions, ref List<Vector3> splittedLinePoints, float resolution, int partitions, bool reverse=false)
         {
             splittedLinePoints = new List<Vector3>();
             splittedLinePoints.Add(positions[0]); // Add first point
@@ -2523,7 +2527,7 @@ namespace Simulator.Editor
                 }
 
                 Vector3 direction = (curPoint - lastPoint).normalized;
-                for (float length = resolution - residue; length < segmentLength; length += resolution)
+                for (float length = resolution - residue; length <= segmentLength; length += resolution)
                 {
                     Vector3 partitionPoint = lastPoint + direction * length;
                     splittedLinePoints.Add(partitionPoint);
@@ -2845,8 +2849,17 @@ namespace Simulator.Editor
             int count = 0;
             foreach (var item in MapAnnotationData.GetData<MapType>())
             {
-                string id = $"{name}_{count++}";
-                item.id = id;
+                string id;
+                if (string.IsNullOrEmpty(item.id))
+                {
+                    id = $"{name}_{count++}";
+                    item.id = id;
+                }
+                else
+                {
+                    id = item.id;
+                }
+
                 ad.Add(create(item));
                 overlaps.GetOrCreate(id).id = HdId(id);
             }

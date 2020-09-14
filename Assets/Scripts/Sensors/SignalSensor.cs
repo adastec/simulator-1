@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2019 LG Electronics, Inc.
+ * Copyright (c) 2019-2020 LG Electronics, Inc.
  *
  * This software contains code licensed as described in LICENSE.
  *
@@ -17,7 +17,7 @@ using Simulator.Map;
 
 namespace Simulator.Sensors
 {
-    [SensorType("Signal", new[] { typeof(SignalData) })]
+    [SensorType("Signal", new[] { typeof(SignalDataArray) })]
     public class SignalSensor : SensorBase
     {
         [SensorParameter]
@@ -28,8 +28,8 @@ namespace Simulator.Sensors
         [Range(1f, 1000f)]
         public float MaxDistance = 100.0f;
 
-        private IBridge Bridge;
-        private IWriter<SignalDataArray> Writer;
+        private BridgeInstance Bridge;
+        private Publisher<SignalDataArray> Publish;
 
         private uint SeqId;
         private float NextSend;
@@ -38,7 +38,7 @@ namespace Simulator.Sensors
         private MapSignal[] Visualized = Array.Empty<MapSignal>();
         private MapManager MapManager;
         private WireframeBoxes WireframeBoxes;
-        
+
         public override SensorDistributionType DistributionType => SensorDistributionType.LowLoad;
 
         void Start()
@@ -58,7 +58,7 @@ namespace Simulator.Sensors
                 }
                 NextSend = Time.time + 1.0f / Frequency;
 
-                Writer.Write(new SignalDataArray()
+                Publish(new SignalDataArray()
                 {
                     Time = SimulatorManager.Instance.CurrentTime,
                     Sequence = SeqId++,
@@ -67,6 +67,13 @@ namespace Simulator.Sensors
             }
 
             Visualized = DetectedSignals.Keys.ToArray();
+        }
+
+        private void FixedUpdate()
+        {
+            // Detected is updated OnTriggerStay.
+            // So we clear it in FixedUpdate() which happens before OnTriggerStay.
+            // Details of excution order can be found at: https://docs.unity3d.com/Manual/ExecutionOrder.html
             DetectedSignals.Clear();
         }
 
@@ -93,11 +100,18 @@ namespace Simulator.Sensors
                             Vector3 size = signal.signalLightMesh.bounds.size;
                             size.Set(size.z, size.x, size.y);
 
+                            string id = signal.id;
+                            if (string.IsNullOrEmpty(id))
+                            {
+                                id = "signal_" + signal.SeqId.ToString();
+                            }
+
                             if (!DetectedSignals.ContainsKey(signal))
                             {
                                 var signalData = new SignalData()
                                 {
-                                    Id = signal.ID,
+                                    SeqId = signal.SeqId,
+                                    Id = id,
                                     Label = signal.CurrentState,
                                     Score = 1.0f,
                                     Position = relPos,
@@ -113,10 +127,10 @@ namespace Simulator.Sensors
             }
         }
 
-        public override void OnBridgeSetup(IBridge bridge)
+        public override void OnBridgeSetup(BridgeInstance bridge)
         {
             Bridge = bridge;
-            Writer = Bridge.AddWriter<SignalDataArray>(Topic);
+            Publish = Bridge.AddPublisher<SignalDataArray>(Topic);
         }
 
         public override void OnVisualize(Visualizer visualizer)
