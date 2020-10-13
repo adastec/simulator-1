@@ -624,8 +624,8 @@ namespace Simulator.Bridge.Ros
             return new VehicleControlData()
             {
                 TimeStampSec = ConvertTime(data.header.stamp),
-                Acceleration = (float)data.ctrl_cmd.linear_acceleration > 0 ? (float)data.ctrl_cmd.linear_acceleration : 0f,
-                Braking = (float)data.ctrl_cmd.linear_acceleration < 0 ? -(float)data.ctrl_cmd.linear_acceleration : 0f,
+                Acceleration = (float)data.ctrl_cmd.acceleration > 0 ? (float)data.ctrl_cmd.acceleration : 0f,
+                Braking = (float)data.ctrl_cmd.acceleration < 0 ? -(float)data.ctrl_cmd.acceleration : 0f,
                 Velocity = (float)data.twist_cmd.twist.linear.x,
                 SteerAngularVelocity = (float)data.twist_cmd.twist.angular.z,
                 SteerAngle = (float)data.ctrl_cmd.steering_angle,
@@ -643,11 +643,23 @@ namespace Simulator.Bridge.Ros
                 SteerAngle = data.front_wheel_angle_rad,
             };
         }
+        public static VehicleControlData ConvertTo(Autoware.ControlCommandStamped data)
+        {
+            return new VehicleControlData()
+            {
+                TimeStampSec = ConvertTime(data.header.stamp),
+                Acceleration = (float)data.control.acceleration > 0 ? (float)data.control.acceleration : 0f,
+                Braking = (float)data.control.acceleration < 0 ? -(float)data.control.acceleration : 0f,
+                Velocity = (float)data.control.velocity,
+                SteerAngularVelocity = (float)data.control.steering_angle_velocity,
+                SteerAngle = (float)data.control.steering_angle
+            };
+        }
 
         public static VehicleControlData ConvertTo(Lgsvl.VehicleControlDataRos data)
         {
             float Deg2Rad = UnityEngine.Mathf.Deg2Rad;
-            float MaxSteeringAngle = 39.4f * Deg2Rad;
+            float MaxSteeringAngle = 50f * Deg2Rad; //ADASTEC
             float wheelAngle = 0f;
             if (data.target_wheel_angle > MaxSteeringAngle)
                 wheelAngle = MaxSteeringAngle;

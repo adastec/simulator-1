@@ -25,10 +25,11 @@ namespace Simulator.Api.Commands
             {
                 var position = spawn.transform.position;
                 var rotation = spawn.transform.rotation.eulerAngles;
-
+                var name = spawn.transform.name; //ADASTEC
                 var s = new JSONObject();
                 s.Add("position", position);
                 s.Add("rotation", rotation);
+                s.Add("name", name);
                 spawns.Add(s);
             }
             api.SendResult(this, spawns);
