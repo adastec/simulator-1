@@ -138,7 +138,7 @@ namespace Simulator.FMU
             }
 
             collider.GetWorldPose(out Vector3 position, out Quaternion rotation);
-
+            Debug.Log("Set the rotation to:" + rotation);
             visual.transform.position = position;
             visual.transform.rotation = rotation;
         }

@@ -7,6 +7,7 @@
  * Copyright (c) 2019-2020 LG Electronics, Inc.
  */
 
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -453,6 +454,33 @@ public class VehicleSMI : MonoBehaviour, IVehicleDynamics
         // You'll need to do some work to separate the brake and accel pedal inputs, though.
         // TODO: handBrake should apply full braking to rear axle (possibly all axles), without
         // changing the accelInput
+        
+        if (BrakeInput < 0 && !(AccellInput > 0.6f)) //ADASTEC karsancpp version of stopping, 1f accel for letting go when stuck
+        {
+            foreach (var axle in Axles)
+            {
+                Debug.Log("Velocity Stop");
+                var brakeTorque = MaxBrakeTorque * BrakeInput * -1 * axle.BrakeBias;
+                axle.Left.brakeTorque = brakeTorque;
+                axle.Right.brakeTorque = brakeTorque;
+                axle.Left.motorTorque = 0f;
+                axle.Right.motorTorque = 0f;
+            }
+        }
+        if (AccellInput < 0) //ADASTEC manual stopping
+        {
+            foreach (var axle in Axles)
+            {
+                Debug.Log("Manual Stop");
+                var brakeTorque = MaxBrakeTorque * AccellInput * -1f * axle.BrakeBias;
+                axle.Left.brakeTorque = brakeTorque;
+                axle.Right.brakeTorque = brakeTorque;
+                axle.Left.motorTorque = 0f;
+                axle.Right.motorTorque = 0f;
+            }
+        }
+
+        /*before:
         else
         {
             //brakes
@@ -465,6 +493,7 @@ public class VehicleSMI : MonoBehaviour, IVehicleDynamics
                 axle.Right.motorTorque = 0f;
             }
         }
+        */
     }
 
     private void TractionControl()
@@ -497,13 +526,14 @@ public class VehicleSMI : MonoBehaviour, IVehicleDynamics
                 TractionControlAdjustedMaxTorque = MaxMotorTorque;
         }
     }
-
+    float BrakeInput = 0f;//ADASTEC
     private void GetInput()
     {
         if (VehicleController != null)
         {
             SteerInput = VehicleController.SteerInput;
             AccellInput = VehicleController.AccelInput;
+            BrakeInput = VehicleController.BrakeInput; //ADASTEC
         }
 
         if (HandBrake)

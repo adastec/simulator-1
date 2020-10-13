@@ -1,0 +1,90 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<ClassDiagram MajorVersion="1" MinorVersion="1">
+  <Class Name="SimulatorManager">
+    <Position X="6" Y="0.5" Width="1.5" />
+    <Compartments>
+      <Compartment Name="Fields" Collapsed="true" />
+      <Compartment Name="Properties" Collapsed="true" />
+    </Compartments>
+    <TypeIdentifier>
+      <HashCode>GAWlAhNpIhMBQAgAFlA0CwAEAWUQITARQAJSxEBwAkA=</HashCode>
+      <FileName>Assets\Scripts\Managers\SimulatorManager.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="LoaderUI">
+    <Position X="12.75" Y="2.5" Width="1.5" />
+    <Compartments>
+      <Compartment Name="Fields" Collapsed="true" />
+      <Compartment Name="Properties" Collapsed="true" />
+    </Compartments>
+    <NestedTypes>
+      <Enum Name="LoaderUI.LoaderUIStateType" Collapsed="true">
+        <TypeIdentifier>
+          <NewMemberFileName>Assets\Scripts\Components\LoaderUI.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Enum>
+    </NestedTypes>
+    <TypeIdentifier>
+      <HashCode>AAQhABIQADIgAAFAAAAAAIiAEAAAEASAAZAAYCCQCCA=</HashCode>
+      <FileName>Assets\Scripts\Components\LoaderUI.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="UnityEngine.MonoBehaviour" Collapsed="true">
+    <Position X="10.75" Y="0.75" Width="1.5" />
+    <TypeIdentifier />
+  </Class>
+  <Class Name="MapManager">
+    <Position X="8.5" Y="2.75" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>QgAEAAAAASAIBAAAAAAAQQAAAIAAAABAAQAAAAAAAEA=</HashCode>
+      <FileName>Assets\Scripts\Managers\MapManager.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="NPCManager">
+    <Position X="15.25" Y="0.5" Width="1.5" />
+    <Compartments>
+      <Compartment Name="Fields" Collapsed="true" />
+      <Compartment Name="Properties" Collapsed="true" />
+    </Compartments>
+    <NestedTypes>
+      <Struct Name="NPCManager.NPCS" Collapsed="true">
+        <TypeIdentifier>
+          <NewMemberFileName>Assets\Scripts\Managers\NPCManager.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Struct>
+      <Struct Name="NPCManager.NPCColors" Collapsed="true">
+        <TypeIdentifier>
+          <NewMemberFileName>Assets\Scripts\Managers\NPCManager.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Struct>
+      <Struct Name="NPCManager.NPCTypeColors" Collapsed="true">
+        <TypeIdentifier>
+          <NewMemberFileName>Assets\Scripts\Managers\NPCManager.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Struct>
+      <Struct Name="NPCManager.NPCSpawnData" Collapsed="true">
+        <TypeIdentifier>
+          <NewMemberFileName>Assets\Scripts\Managers\NPCManager.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Struct>
+      <Delegate Name="NPCManager.DespawnCallbackType" Collapsed="true">
+        <TypeIdentifier>
+          <NewMemberFileName>Assets\Scripts\Managers\NPCManager.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Delegate>
+    </NestedTypes>
+    <TypeIdentifier>
+      <HashCode>ACADQDhIATIBtAQIYFAgAAwEQXAAABARHAYUAAgEgIY=</HashCode>
+      <FileName>Assets\Scripts\Managers\NPCManager.cs</FileName>
+    </TypeIdentifier>
+    <Lollipop Position="0.2" />
+  </Class>
+  <Class Name="SignalLight" Collapsed="true">
+    <Position X="10.5" Y="3.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</HashCode>
+      <FileName>Assets\Scripts\Components\SignalLight.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Font Name="Segoe UI" Size="9" />
+</ClassDiagram>

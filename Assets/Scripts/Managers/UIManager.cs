@@ -147,7 +147,10 @@ public class UIManager : MonoBehaviour
         PauseButton.gameObject.SetActive(false);
         EnvironmentButton.gameObject.SetActive(false);
         MenuHolder.SetActive(false);
-
+#if UNITY_EDITOR //ADASTEC
+        EnvironmentButton.gameObject.SetActive(true);
+        MenuHolder.SetActive(true);
+#endif
         var config = Loader.Instance?.SimConfig;
         if (config != null)
         {

@@ -152,15 +152,33 @@ namespace Simulator.Sensors
                 if (Input.GetKeyDown(KeyCode.RightShift)) ParkingBrakePerformed(ctx);
                 if (Input.GetKeyDown(KeyCode.End)) IgnitionPerformed(ctx);
                 if (Input.GetKeyDown(KeyCode.I)) InteriorLightPerformed(ctx);
+
             }
 
+            SteerInput = Mathf.MoveTowards(SteerInput, keyboardInput.x, Time.deltaTime);
+            AccelInput = keyboardInput.y;
+        }
+        float time_start;
+        float time_end;
+       /* private void FixedUpdate()
+        {
             if (AgentController.Active)
             {
-                SteerInput = Mathf.MoveTowards(SteerInput, keyboardInput.x, Time.deltaTime);
+                float stepSize = 0.025f / (3f * 2.5f); //turn 16.6 degrees a second
+                SteerInput = Mathf.MoveTowards(SteerInput, keyboardInput.x, stepSize);
                 AccelInput = keyboardInput.y;
+                if(SteerInput == 1)
+                {
+                    //time_start = Time.time;
+                }
+                if(SteerInput < 0.001f)
+                {
+                    //time_end = Time.time;
+                    //Debug.Log(time_end - time_start);
+                }
             }
         }
-
+       */
         private void OnDestroy()
         {
             if (SystemInfo.operatingSystemFamily == OperatingSystemFamily.Linux && Application.isEditor)
