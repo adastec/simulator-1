@@ -7,7 +7,7 @@
 
 namespace Simulator.Bridge.Ros.Ros
 {
-    [MessageType("std_msgs/String")] //ADASTEC
+    [MessageType("autoware_msgs/VehicleStatus")] //ADASTEC
     public class ros_CustomDataBridgeData
     {
         public float speed;

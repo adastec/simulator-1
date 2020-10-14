@@ -12,6 +12,7 @@ using System.Collections.Generic;
 namespace Simulator.Bridge.Ros.Autoware
 {
     // Autoware-specific messages
+    
     [MessageType("autoware_control_msgs/ControlCommand")] //ADASTEC
     public class ControlCommand
     {

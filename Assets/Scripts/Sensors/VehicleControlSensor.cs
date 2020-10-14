@@ -11,6 +11,7 @@ using Simulator.Utilities;
 using UnityEngine;
 using Simulator.Sensors.UI;
 using System.Collections.Generic;
+using System.Collections;
 
 namespace Simulator.Sensors
 {
@@ -85,16 +86,28 @@ namespace Simulator.Sensors
                 float stepSize = 0.025f / (3f * 2.5f); //turn 16.6 degrees a second  
                 float brakeStepSize = 0.05f;
                 BrakeInput = ADBrakeInput; //ADASTEC if velocity is 0, brake level 1 (karsancpp)
+                StartCoroutine(PutDelay(delayAmount, ADSteerInput));
                 AccelInput = Mathf.MoveTowards(AccelInput, ADAccelInput, stepSize);                
-                SteerInput = Mathf.MoveTowards(SteerInput, ADSteerInput, SteerStep);
-                //Debug.Log("Target: " + ADSteerInput + ", Now: " + SteerInput + ", tried to move: " + stepSize);
+                //SteerInput = Mathf.MoveTowards(SteerInput, ADSteerInput, SteerStep);
+                MoveDebug = "Target: " + ADSteerInput + ", Now: " + SteerInput + ", tried to move: " + SteerStep;
             }
         }
         public float oldVelocity;
         Queue<float> SteerList = new Queue<float>();
         public float SteerStep;
         public string SteerDebug;
+        public string MoveDebug;
+        public string TimeDebug;
+        public float delayAmount;
         float tempSteer = 0;
+
+        IEnumerator PutDelay(float sec, float steer)
+        {
+            float s_time = Time.time;
+            yield return new WaitForSeconds(sec);
+            TimeDebug = "Waited for " + (Time.time - s_time) + " secs";
+            SteerInput = Mathf.MoveTowards(SteerInput, steer, SteerStep);
+        }
         public override void OnBridgeSetup(BridgeInstance bridge)
         {
             float wheel_base = 4.5791f; //Atak wheel base length
@@ -124,7 +137,23 @@ namespace Simulator.Sensors
                         var linMag = Mathf.Clamp(Mathf.Abs(data.Velocity.GetValueOrDefault() - ActualLinVel), 0f, 1f);
                         ADAccelInput = ActualLinVel < data.Velocity.GetValueOrDefault() ? linMag : -linMag;
                         if (ADAccelInput < 0) ADAccelInput = 0f; //To enable manual stopping.
+                                                
+                        if (useMPC)
+                        {
+                            Debug.Log("MPC IS TRUE");
+                            ADSteerInput = -Mathf.Clamp(data.SteerAngle.GetValueOrDefault() / (50f * Deg2Rad), -1f, 1f);
+                            SteerStep = Mathf.Clamp(Mathf.Abs(data.SteerAngularVelocity.GetValueOrDefault() * Time.fixedDeltaTime / ((250f / 15f) * Deg2Rad)), -1f, 1f);
+                            SteerDebug = "" + SteerStep;
+                        }
+                        else
+                        {
+                            ADSteerInput = -Mathf.Clamp(data.SteerAngularVelocity.GetValueOrDefault() / (50f * Deg2Rad), -1f, 1f);
+                            //ADASTEC x radian for 46.6 degrees 
+                            //Dividing with x radian is for normalizing -x,+x radians to -1,1 unity values.
+                            //-Mathf.Clamp((Mathf.Atan((wheel_base * data.SteerAngularVelocity.GetValueOrDefault()) / (data.Velocity.GetValueOrDefault() + 0.001f))) / (30 * Deg2Rad), -1f, 1f); 
+                        }
                         
+
                         /*
                         if (useMPC)
                         {
@@ -151,20 +180,6 @@ namespace Simulator.Sensors
                             Debug.Log("Enqueued: " + tempSteer + ", size: " + SteerList.Count);
                         }
                         */
-                        if (useMPC)
-                        {
-                            Debug.Log("MPC IS TRUE");
-                            ADSteerInput = -Mathf.Clamp(data.SteerAngle.GetValueOrDefault() / (50f * Deg2Rad), -1f, 1f);
-                            SteerStep = Mathf.Clamp(Mathf.Abs(Data.SteerAngularVelocity.GetValueOrDefault() * Time.fixedDeltaTime / ((250f / 15f) * Deg2Rad)), -1f, 1f);
-                            SteerDebug = "Current Steer Rate:\n" + SteerStep;
-                        }
-                        else
-                        {
-                            ADSteerInput = -Mathf.Clamp(data.SteerAngularVelocity.GetValueOrDefault() / (50f * Deg2Rad), -1f, 1f);
-                            //ADASTEC x radian for 46.6 degrees 
-                            //Dividing with x radian is for normalizing -x,+x radians to -1,1 unity values.
-                            //-Mathf.Clamp((Mathf.Atan((wheel_base * data.SteerAngularVelocity.GetValueOrDefault()) / (data.Velocity.GetValueOrDefault() + 0.001f))) / (30 * Deg2Rad), -1f, 1f); 
-                        }
                     }
                 }
                 else if (data.SteerRate.HasValue) // apollo
