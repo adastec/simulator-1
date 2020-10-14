@@ -17,6 +17,9 @@ public class AdastecUIExtension : MonoBehaviour
     public Toggle mpcToggle;
     VehicleController vc;
     public Text SteerText;
+    public Text StepText;
+    public Text TimeText;
+    public InputField DelayInput;
     private void Start()
     {
         SpawnedObjects = GameObject.FindGameObjectWithTag("SpawnedObjects").transform;
@@ -34,10 +37,14 @@ public class AdastecUIExtension : MonoBehaviour
         jaywalkSlider.onValueChanged.AddListener(delegate { JaywalkValueChangeCheck(); });
         vc = GameObject.FindGameObjectWithTag("Player").GetComponent<VehicleController>();
         SteerText.text = "Current Steer Rate:\n";
+        vc.vcs.useMPC = true;
     }
     private void Update()
     {
-        SteerText.text = vc.vcs.SteerDebug;
+        SteerText.text = "Current Steer Rate:\n" + vc.vcs.SteerDebug;
+        StepText.text = vc.vcs.MoveDebug;
+        TimeText.text = vc.vcs.TimeDebug;
+
     }
     public void ChangeStatus()
     {
@@ -66,5 +73,9 @@ public class AdastecUIExtension : MonoBehaviour
     public void changeUseMPC()
     {
         vc.vcs.useMPC = !vc.vcs.useMPC;
+    }
+    public void ChangeDelay()
+    {
+        vc.vcs.delayAmount = float.Parse(DelayInput.text);
     }
 }
