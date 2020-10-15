@@ -7,12 +7,6 @@
 
 namespace Simulator.Bridge.Ros.Ros
 {
-    [MessageType("autoware_msgs/VehicleStatus")] //ADASTEC
-    public class ros_CustomDataBridgeData
-    {
-        public float speed;
-        public float angle;
-    }
     [MessageType("std_msgs/Time")]
     public class Time
     {
@@ -25,6 +19,7 @@ namespace Simulator.Bridge.Ros.Ros
     {
         public Time clock;
     }
+
     [MessageType("std_msgs/ColorRGBA")]
     public class ColorRGBA
     {

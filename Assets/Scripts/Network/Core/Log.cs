@@ -8,26 +8,13 @@
 namespace Simulator.Network.Core
 {
     using UnityEngine;
+    using Debug = UnityEngine.Debug;
 
     /// <summary>
     /// Class that logs infos, warnings and errors. Provides configuration of logged messages.
     /// </summary>
     public static class Log
     {
-        /// <summary>
-        /// Are infos enabled for logging system
-        /// </summary>
-        public static bool InfosEnabled = false;
-        
-        /// <summary>
-        /// Are warnings enabled for logging system
-        /// </summary>
-        public static bool WarningsEnabled = true;
-        
-        /// <summary>
-        /// Are errors enabled for logging system
-        /// </summary>
-        public static bool ErrorsEnabled = true;
 
         /// <summary>
         /// Logs an info message
@@ -35,8 +22,7 @@ namespace Simulator.Network.Core
         /// <param name="message">Message to be logged</param>
         public static void Info(object message)
         {
-            if (InfosEnabled)
-                Debug.Log(message);
+            Debug.Log(message);
         }
 
         /// <summary>
@@ -46,8 +32,7 @@ namespace Simulator.Network.Core
         /// <param name="context">Context of the message </param>
         public static void Info(object message, Object context)
         {
-            if (InfosEnabled)
-                Debug.Log(message, context);
+            Debug.Log(message, context);
         }
 
         /// <summary>
@@ -56,8 +41,7 @@ namespace Simulator.Network.Core
         /// <param name="message">Message to be logged</param>
         public static void Warning(object message)
         {
-            if (WarningsEnabled)
-                Debug.LogWarning(message);
+            Debug.LogWarning(message);
         }
 
         /// <summary>
@@ -67,8 +51,7 @@ namespace Simulator.Network.Core
         /// <param name="context">Context of the message </param>
         public static void Warning(object message, Object context)
         {
-            if (WarningsEnabled)
-                Debug.LogWarning(message, context);
+            Debug.LogWarning(message, context);
         }
 
         /// <summary>
@@ -77,8 +60,7 @@ namespace Simulator.Network.Core
         /// <param name="message">Message to be logged</param>
         public static void Error(object message)
         {
-            if (ErrorsEnabled)
-                Debug.LogError(message);
+            Debug.LogError(message);
         }
 
         /// <summary>
@@ -88,8 +70,7 @@ namespace Simulator.Network.Core
         /// <param name="context">Context of the message </param>
         public static void Error(object message, Object context)
         {
-            if (ErrorsEnabled)
-                Debug.LogError(message, context);
+            Debug.LogError(message, context);
         }
     }
 }

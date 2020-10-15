@@ -5,7 +5,7 @@ pipeline {
   agent {
     node {
       label "unity3d-2019.3-vulkan"
-      customWorkspace "/home/jenkins/workspace/simulator-2019.3.15f1"
+      customWorkspace "/home/jenkins/workspace/simulator-cloud-2019.3.15f1"
     }
   }
 
@@ -26,7 +26,7 @@ pipeline {
     booleanParam(name: "BUILD_MACOS", defaultValue: false, description: "")
     booleanParam(name: "FORCE_CHECK", defaultValue: false, description: "")
     booleanParam(name: "FORCE_TEST", defaultValue: false, description: "")
-    string(name: "CLOUD_URL", defaultValue: "${SIMULATOR_STAGING_CLOUD_URL}", description: "")
+    string(name: "CLOUD_URL", defaultValue: "${SIMULATOR_WISE_STAGING_URL}", description: "")
   }
 
   environment {
@@ -39,8 +39,6 @@ pipeline {
     JENKINS_BUILD_ID = "${BUILD_ID}"
     GIT_BRANCH = "${BRANCH_NAME}"
     CODE_SIGNING_FILE = "/dev/urandom"
-    SIMULATOR_ENVIRONMENTS = "${SIMULATOR_ENVIRONMENTS_RELEASE}"
-    SIMULATOR_SENSORS = "${SIMULATOR_SENSORS_RELEASE}"
   }
 
   stages {
@@ -175,14 +173,6 @@ pipeline {
     }
 
     stage("Checkout NPCs") {
-      when {
-        not {
-            anyOf {
-                environment name: "SIMULATOR_NPCS_REPOS", value: ""
-                environment name: "SIMULATOR_NPCS", value: ""
-            }
-        }
-      }
       steps {
         script {
           def npcs = env.SIMULATOR_NPCS_REPOS.split(',')
@@ -217,16 +207,7 @@ pipeline {
             docker login -u ${DOCKER_USR} -p ${DOCKER_PSW} ${GITLAB_HOST}:4567
             docker-compose build build-simulator
             docker-compose push build-simulator
-            docker-compose pull build-webui
           """
-        }
-      }
-    }
-
-    stage("WebUI") {
-      steps {
-        dir("Jenkins") {
-          sh "UID=`id -u` docker-compose run --rm build-webui"
         }
       }
     }
@@ -329,21 +310,6 @@ pipeline {
       }
 
     } // macOS
-
-    stage("Bundles") {
-      steps {
-        dir("Jenkins") {
-          sh "UID=`id -u` docker-compose run --rm save-bundle-links"
-        }
-      }
-
-      post {
-        success {
-          archiveArtifacts "*-bundles-${JENKINS_BUILD_ID}.html"
-        }
-      }
-    } // Bundles
-
   } // stages
 
   post {

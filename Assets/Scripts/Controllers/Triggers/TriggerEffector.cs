@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Copyright (c) 2020 LG Electronics, Inc.
  *
  * This software contains code licensed as described in LICENSE.
@@ -15,7 +15,7 @@ public abstract class TriggerEffector
 
     public virtual AgentType[] UnsupportedAgentTypes { get; } = { AgentType.Unknown, AgentType.Ego};
 
-    public abstract IEnumerator Apply(ITriggerAgent triggerAgent);
+    public abstract IEnumerator Apply(NPCController parentNPC);
 
     public abstract void DeserializeProperties(JSONNode jsonData);
     

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2019 LG Electronics, Inc.
+ * Copyright (c) 2019-2020 LG Electronics, Inc.
  *
  * This software contains code licensed as described in LICENSE.
  *
@@ -22,17 +22,17 @@ namespace Simulator.Editor
             // folder => allowed extensions
             { "Animations", new [] { ".controller", ".anim", ".playable" } },
             { "Audio", new [] { ".wav", ".mp3" } },
-            { "Effects", new [] { ".png" } },
+            { "Effects", new [] { ".png", ".vfx" } },
             { "GlobalSettings", new [] { ".asset" } },
             { "Materials", new [] { ".mat", ".png", ".jpg", ".asset" } },
             { "Models", new [] { ".fbx", ".st" } },
             { "Physics", new [] { ".physicMaterial" } },
             { "Pefabs", new [] { ".prefab" } },
-            { "Resources", new [] { ".txt", ".prefab", ".asset" } }, // TODO: does this need prefab?
+            { "Resources", new [] { ".txt", ".prefab", ".asset", ".fmu" } }, // TODO: does this need prefab?
             { "ScriptableObjects", new [] { ".asset" } },
             { "Scenes", new [] { ".unity" } },
             { "Shaders", new [] { ".shader", ".hlsl", ".shadergraph", ".shadersubgraph", ".compute" } },
-            { "Textures", new [] { ".png", ".exr", ".jpg" } },
+            { "Textures", new [] { ".png", ".exr", ".jpg", ".tga" } },
         };
 
         public enum Category
@@ -66,6 +66,7 @@ namespace Simulator.Editor
                 "obj",
                 "Temp",
                 "Web",
+                "Logs",
             };
 
             var rootFoldersReq = new[]
@@ -103,11 +104,13 @@ namespace Simulator.Editor
                 "Editor",
                 "Effects",
                 "GlobalSettings",
+                "HDRPDefaultResources",
                 "Materials",
                 "Models",
                 "Physics",
                 "Plugins",
                 "Prefabs",
+                "PreviewEnvironmentAssets",
                 "Resources",
                 "ScriptableObjects",
                 "Scenes",
@@ -348,7 +351,7 @@ namespace Simulator.Editor
                     if (target != "/Library" && target != "/Temp" && target != "/obj" &&
                         target != "/WebUI/node_modules" &&
                         !target.StartsWith("/Packages") &&
-                        target != "/Assets/GlobalSettings/HDRPDefaultResources")
+                        target != "/Assets/HDRPDefaultResources")
                     {
                         CheckSpaces($"{folderName}/{name}", f);
                     }
@@ -408,6 +411,10 @@ namespace Simulator.Editor
                 {
                     continue;
                 }
+                if (folderName == "/Assets/Scripts/Web/Tests/TestData/SimulationConfig")
+                {
+                    continue;
+                }
 
                 if (extension != ".cs" && extension != ".asmdef" && extension != ".inputactions")
                 {
@@ -438,6 +445,9 @@ namespace Simulator.Editor
                                 "/Assets/Scripts/Map/MapOrigin.Conversion.cs",
                                 "/Assets/Scripts/Editor/OdrSpiral.cs",
                                 "/Assets/Scripts/Editor/OpenDRIVE_1.4H.cs",
+                                "/Assets/Scripts/Dynamics/FMU/FMU.cs",
+                                "/Assets/Scripts/Editor/FMUEditor/FMUImporter.cs",
+                                "/Assets/Scripts/Editor/Map/Meshes/clipper.cs",
                             };
 
                             if (!exceptions.Contains($"{folderName}/{name}"))
@@ -676,6 +686,18 @@ namespace Simulator.Editor
                     continue;
                 }
                 if (dep.StartsWith("Assets/Scripts/") || dep.StartsWith("Assets/Shaders/"))
+                {
+                    continue;
+                }
+                if (dep.StartsWith("Assets/Materials"))
+                {
+                    continue;
+                }
+                if (dep.StartsWith("Assets/Models/TrafficControl"))
+                {
+                    continue;
+                }
+                if (dep.StartsWith("Assets/Prefabs/Map"))
                 {
                     continue;
                 }

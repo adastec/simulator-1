@@ -8,6 +8,7 @@
 namespace Simulator.Network.Core.Connection
 {
     using System;
+    using System.Collections.Generic;
     using System.Net;
     using Messaging.Data;
 
@@ -37,6 +38,11 @@ namespace Simulator.Network.Core.Connection
         int ConnectedPeersCount { get; }
 
         /// <summary>
+        /// List of the identifiers which connection can be accepted
+        /// </summary>
+        List<string> AcceptableIdentifiers { get; }
+
+        /// <summary>
         /// Event invoked when new peer has been connected to the manager
         /// </summary>
         event Action<IPeerManager> PeerConnected;
@@ -55,8 +61,9 @@ namespace Simulator.Network.Core.Connection
         /// Starts the manager, begins listening for events on given port
         /// </summary>
         /// <param name="port">Listening port for the connection</param>
+        /// <param name="timeout">Timeout value in milliseconds</param>
         /// <returns>True if manager was started, false if start failed</returns>
-        bool Start(int port);
+        bool Start(int port, int timeout);
 
         /// <summary>
         /// Stop the connection manager and all established connections
@@ -67,7 +74,8 @@ namespace Simulator.Network.Core.Connection
         /// Asynchronously connects to the peer at given address and port
         /// </summary>
         /// <param name="endPoint">End point of target peer</param>
-        IPeerManager Connect(IPEndPoint endPoint);
+        /// <param name="identifier">Identifier of the peer requesting the connection</param>
+        IPeerManager Connect(IPEndPoint endPoint, string identifier);
 
         /// <summary>
         /// Receive all pending events. Call this in application main loop update.

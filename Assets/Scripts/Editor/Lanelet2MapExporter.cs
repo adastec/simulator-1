@@ -80,8 +80,8 @@ namespace Simulator.Editor
                 }
             }
 
-            LinesData = OpenDriveMapExporter.GetLinesData(lineSegments);
             LanesData = OpenDriveMapExporter.GetLanesData(laneSegments);
+            LinesData = OpenDriveMapExporter.GetLinesData(lineSegments);
 
             // Link before and after segment for each lane segment
             if (!OpenDriveMapExporter.LinkSegments(LanesData)) return false;
@@ -1177,6 +1177,7 @@ namespace Simulator.Editor
                 CheckLinePositionsSize(lineData);
                 if (positions.Count > 2 && !isSameDirection3Points(p1, p2, positions[2]))
                 {
+                    Debug.LogWarning($"Line: {lineData.go.name} instanceID: {lineData.go.GetInstanceID()} first two points are overlapping, remove second one.", lineData.go);
                     positions.RemoveAt(1);
                     changed = true;
                 }
@@ -1187,6 +1188,7 @@ namespace Simulator.Editor
                 CheckLinePositionsSize(lineData);
                 if (positions.Count > 2 && !isSameDirection3Points(positions[positions.Count - 3], p3, p4))
                 {
+                    Debug.LogWarning($"Line: {lineData.go.name} instanceID: {lineData.go.GetInstanceID()} last two points are overlapping, remove the one before last one.", lineData.go);
                     positions.RemoveAt(positions.Count - 2);
                     changed = true;
                 }
@@ -1676,8 +1678,9 @@ namespace Simulator.Editor
             return null;
         }
 
-        public void Export(string filePath)
+        public bool Export(string filePath)
         {
+            bool success = false;
             if (Calculate())
             {
                 using (var file = File.Create(filePath))
@@ -1713,11 +1716,13 @@ namespace Simulator.Editor
                     target.Close();
                 }
                 Debug.Log("Successfully generated and exported Lanelet2 Map!");
+                success = true;
             }
             else
             {
                 Debug.LogError("Failed to export Lanelet2 Map!");
             }
+            return success;
         }
 
         public void AddBoundaryTagToWay(LaneData laneData, Way leftWay, Way rightWay)

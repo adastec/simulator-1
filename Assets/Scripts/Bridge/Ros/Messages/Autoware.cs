@@ -12,22 +12,6 @@ using System.Collections.Generic;
 namespace Simulator.Bridge.Ros.Autoware
 {
     // Autoware-specific messages
-    
-    [MessageType("autoware_control_msgs/ControlCommand")] //ADASTEC
-    public class ControlCommand
-    {
-        public double velocity;
-        public double acceleration;
-        public double steering_angle;
-        public double steering_angle_velocity;
-    }
-    [MessageType("autoware_control_msgs/ControlCommandStamped")]
-    public class ControlCommandStamped
-    {
-        public ControlCommand control;
-        public Ros.Header header;
-    }
-
     [MessageType("autoware_msgs/steer_cmd")]
     public class steer_cmd
     {
@@ -56,7 +40,7 @@ namespace Simulator.Bridge.Ros.Autoware
         public int l;
         public int r;
     }
-    /*
+
     [MessageType("autoware_msgs/ControlCommand")]
     public class ControlCommand
     {
@@ -64,7 +48,7 @@ namespace Simulator.Bridge.Ros.Autoware
         public double linear_acceleration;
         public double steering_angle;
     }
-    */
+
     [MessageType("autoware_msgs/VehicleCmd")]
     public class VehicleCmd
     {

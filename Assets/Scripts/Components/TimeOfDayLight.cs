@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2019 LG Electronics, Inc.
+ * Copyright (c) 2019-2020 LG Electronics, Inc.
  *
  * This software contains code licensed as described in LICENSE.
  *
@@ -9,6 +9,8 @@ using UnityEngine;
 
 public class TimeOfDayLight : MonoBehaviour
 {
+    private static readonly int EmissiveColorId = Shader.PropertyToID("_EmissiveColor");
+
     private Light[] streetLights;
     private Renderer lightMesh; // TODO multiple meshes
     private Color emitColor = new Color(8f, 8f, 8f);
@@ -17,7 +19,10 @@ public class TimeOfDayLight : MonoBehaviour
     {
         streetLights = GetComponentsInChildren<Light>();
         lightMesh = GetComponent<Renderer>();
-        SimulatorManager.Instance.EnvironmentEffectsManager.TimeOfDayChanged += OnTimeOfDayChange;
+        if (SimulatorManager.InstanceAvailable)
+        {
+            SimulatorManager.Instance.EnvironmentEffectsManager.TimeOfDayChanged += OnTimeOfDayChange;
+        }
         OnTimeOfDayChange(state);
     }
     
@@ -55,6 +60,8 @@ public class TimeOfDayLight : MonoBehaviour
     private void SetMeshEmissiveColor(Color color)
     {
         if (lightMesh != null)
-            lightMesh.material.SetVector("_EmissiveColor", color);
+        {
+            lightMesh.material.SetVector(EmissiveColorId, color);
+        }
     }
 }

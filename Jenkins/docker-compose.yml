@@ -1,22 +1,6 @@
 version: "2.4"
 
 services:
-  build-webui:
-    image: node:10.15-slim
-    user: ${UID}
-    volumes:
-      - ..:/mnt
-      - /etc/localtime:/etc/localtime:ro
-    command: "/mnt/Jenkins/build-webui.sh pack"
-
-  build-webui-p:
-    image: node:10.15-slim
-    user: ${UID}
-    volumes:
-      - ..:/mnt
-      - /etc/localtime:/etc/localtime:ro
-    command: "/mnt/Jenkins/build-webui.sh pack-p"
-
   build-simulator:
     build: .
     image: ${SIMULATOR_DOCKER_IMAGE}:2019.3.15f1
@@ -48,32 +32,6 @@ services:
     runtime: "nvidia"
     privileged: true
     entrypoint: "/mnt/Jenkins/build-simulator.sh"
-
-  save-bundle-links:
-    build: .
-    image: ${SIMULATOR_DOCKER_IMAGE}:2019.3.15f1
-    user: ${UID}
-    environment:
-      - SIM_ENVIRONMENTS
-      - SIM_VEHICLES
-      - S3_DOWNLOAD_HOST
-      - JENKINS_BUILD_ID
-      - GIT_COMMIT
-      - GIT_BRANCH
-      - GIT_TAG
-      - UNITY_USERNAME
-      - UNITY_PASSWORD
-      - UNITY_SERIAL
-      - DISPLAY
-      - XAUTHORITY=/tmp/.Xauthority
-    volumes:
-      - ..:/mnt
-      - /etc/localtime:/etc/localtime:ro
-      - /tmp/.X11-unix:/tmp/.X11-unix
-      - ${HOME}/.Xauthority:/tmp/.Xauthority
-    runtime: "nvidia"
-    privileged: true
-    entrypoint: "/mnt/Jenkins/save-bundle-links.sh"
 
   build-bundles:
     build: .
@@ -114,3 +72,18 @@ services:
       - ..:/mnt
       - /etc/localtime:/etc/localtime:ro
     entrypoint: "/mnt/Jenkins/upload-bundles.sh"
+
+  upload-bundles-wise:
+    image: auto-gitlab.lgsvl.net:4567/hdrp/wise-cli
+    user: ${UID}
+    environment:
+      - SIM_ENVIRONMENTS
+      - SIM_VEHICLES
+      - WISE_USERNAME
+      - WISE_PASSWORD
+      - WISE_URL
+      - HOME=/tmp
+    volumes:
+      - ..:/mnt
+      - /etc/localtime:/etc/localtime:ro
+    entrypoint: "/mnt/Jenkins/upload-bundles-wise.sh"

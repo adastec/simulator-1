@@ -42,4 +42,5 @@ Find how to procedures [here](https://netorgft4229778.sharepoint.com/:f:/s/Adast
 * Adjusted base_link and vehicle measures as their real values. Simulator is running with MPC.
 * When the steering rate is lowered to its real value, MPC does not work.
 * When delay is added, MPC does not work.
-
+# V3.5
+* Switching to premium version.

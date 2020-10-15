@@ -15,9 +15,6 @@ TagManager:
   - Shoulder
   - Pedestrian
   - Curb
-  - FindCube
-  - RaycastRoad
-  - SpawnedObjects
   layers:
   - Default
   - TransparentFX

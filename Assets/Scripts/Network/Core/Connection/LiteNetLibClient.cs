@@ -8,11 +8,13 @@
 namespace Simulator.Network.Core.Connection
 {
     using System;
+    using System.Collections.Generic;
+    using System.Globalization;
     using System.Net;
     using System.Net.Sockets;
     using LiteNetLib;
+    using LiteNetLib.Utils;
     using Messaging.Data;
-
     using Simulator.Network.Core.Messaging;
 
     /// <summary>
@@ -23,13 +25,19 @@ namespace Simulator.Network.Core.Connection
         /// <summary>
         /// Connection application key
         /// </summary>
-        public const string ApplicationKey = "SimulatorClient"; // TODO: this can be unique per run
-        
+        public const string ApplicationKey = "LGSVL";
+
         /// <summary>
         /// The net manager for this client
         /// </summary>
         private NetManager netClient;
-        
+
+        /// <summary>
+        /// Currently active connections made by this connection manager
+        /// </summary>
+        private Dictionary<IPEndPoint, LiteNetLibPeerManager> activeConnections =
+            new Dictionary<IPEndPoint, LiteNetLibPeerManager>();
+
         /// <summary>
         /// Peer manager for connection with the server
         /// </summary>
@@ -37,12 +45,12 @@ namespace Simulator.Network.Core.Connection
 
         /// <inheritdoc/>
         public bool IsServer => false;
-        
+
         /// <inheritdoc/>
         public int Port { get; private set; }
 
         /// <inheritdoc/>
-        public int Timeout => 30000;
+        public int Timeout { get; private set; }
 
         /// <inheritdoc/>
         public int ConnectedPeersCount => masterPeer == null ? 0 : 1;
@@ -51,48 +59,71 @@ namespace Simulator.Network.Core.Connection
         /// The net manager for this client
         /// </summary>
         public NetManager NetClient => netClient;
-        
+
         /// <summary>
         /// Current latency for this connection with the server
         /// </summary>
         public int Latency { get; private set; }
 
         /// <inheritdoc/>
+        public List<string> AcceptableIdentifiers { get; } = new List<string>();
+
+        /// <inheritdoc/>
         public event Action<IPeerManager> PeerConnected;
 
         /// <inheritdoc/>
         public event Action<IPeerManager> PeerDisconnected;
-        
+
         /// <inheritdoc/>
         public event Action<DistributedMessage> MessageReceived;
-        
+
         /// <summary>
         /// Event invoked when the latency changes
         /// </summary>
         public event Action<int> LatencyUpdated;
-        
+
         /// <inheritdoc/>
-        public bool Start(int port)
+        public bool Start(int port, int timeout)
         {
             Port = port;
-            netClient = new NetManager(this) {UnconnectedMessagesEnabled = false, UpdateTime = 5, DisconnectTimeout = Timeout,
-                AutoRecycle = true};
-            return NetClient.Start(port);
+            Timeout = timeout;
+            netClient = new NetManager(this)
+            {
+                UnconnectedMessagesEnabled = false, UpdateTime = 5, DisconnectTimeout = timeout,
+                AutoRecycle = true
+            };
+            var result = NetClient.Start(port);
+            if (result)
+                Log.Info($"{GetType().Name} started using the port '{port}'.");
+            else
+                Log.Error($"{GetType().Name} failed to start using the port '{port}'.");
+            return result;
         }
 
         /// <inheritdoc/>
         public void Stop()
         {
             NetClient?.Stop();
+            Log.Info($"{GetType().Name} was stopped.");
         }
 
         /// <inheritdoc/>
-        public IPeerManager Connect(IPEndPoint endPoint)
+        public IPeerManager Connect(IPEndPoint endPoint, string peerIdentifier)
         {
-            if (masterPeer != null)
-                throw new ArgumentException("Client can be connected only to a single peer.");
-            masterPeer = new LiteNetLibPeerManager(NetClient.Connect(endPoint, ApplicationKey));
-            return masterPeer;
+            if (activeConnections.ContainsKey(endPoint))
+            {
+                Log.Warning($"{GetType().Name} already got a connection active to the endpoint '{endPoint}'.");
+                return null;
+            }
+
+            var writer = new NetDataWriter();
+            writer.Put(ApplicationKey);
+            writer.Put(peerIdentifier);
+            var peer = new LiteNetLibPeerManager(NetClient.Connect(endPoint, writer));
+            activeConnections.Add(endPoint, peer);
+            Log.Info(
+                $"{GetType().Name} tries to connect with a peer at address '{endPoint}, current UTC time: {DateTime.UtcNow.ToString(CultureInfo.InvariantCulture)}.");
+            return peer;
         }
 
         /// <inheritdoc/>
@@ -112,7 +143,18 @@ namespace Simulator.Network.Core.Connection
         /// <inheritdoc/>
         public void Broadcast(DistributedMessage distributedMessage)
         {
-            masterPeer?.Send(distributedMessage);
+            var bytesStack = distributedMessage.Content;
+            try
+            {
+                NetworkStatistics.ReportSentPackage(bytesStack.Count);
+                NetClient.SendToAll(bytesStack.RawData, 0, bytesStack.Count,
+                    LiteNetLibPeerManager.GetDeliveryMethod(distributedMessage.Type));
+            }
+            catch (TooBigPacketException)
+            {
+                Log.Error($"Too large message to be sent: {bytesStack.Count}.");
+            }
+
             distributedMessage.Release();
         }
 
@@ -125,19 +167,20 @@ namespace Simulator.Network.Core.Connection
         /// <inheritdoc/>
         public void OnPeerConnected(NetPeer peer)
         {
-            if (masterPeer == null)
-                masterPeer = new LiteNetLibPeerManager(peer);
-            else if (!Equals(masterPeer.PeerEndPoint, peer.EndPoint))
-                throw new ArgumentException("Client can be connected only to a single peer.");
+            if (masterPeer != null)
+                return;
+
+            masterPeer = activeConnections[peer.EndPoint];
             PeerConnected?.Invoke(masterPeer);
         }
 
         /// <inheritdoc/>
         public void OnPeerDisconnected(NetPeer peer, DisconnectInfo disconnectInfo)
         {
+            if (masterPeer == null || masterPeer.Peer != peer)
+                return;
             var disconnectedPeer = masterPeer;
-            if (masterPeer.Peer == peer)
-                masterPeer = null;
+            masterPeer = null;
             PeerDisconnected?.Invoke(disconnectedPeer);
         }
 
@@ -162,7 +205,8 @@ namespace Simulator.Network.Core.Connection
         }
 
         /// <inheritdoc/>
-        public void OnNetworkReceiveUnconnected(IPEndPoint remoteEndPoint, NetPacketReader reader, UnconnectedMessageType messageType)
+        public void OnNetworkReceiveUnconnected(IPEndPoint remoteEndPoint, NetPacketReader reader,
+            UnconnectedMessageType messageType)
         {
             //TODO broadcast messages support
         }
@@ -177,7 +221,9 @@ namespace Simulator.Network.Core.Connection
         /// <inheritdoc/>
         public void OnConnectionRequest(ConnectionRequest request)
         {
-            request.AcceptIfKey(LiteNetLibServer.ApplicationKey);
+            Log.Error(
+                $"{GetType().Name} received an connection request from address '{request.RemoteEndPoint.Address}' but client simulation cannot accept requests.");
+            request.Reject();
         }
 
         /// <summary>
@@ -187,7 +233,7 @@ namespace Simulator.Network.Core.Connection
         /// <returns>Corresponding MessageType to the given LiteNetLib DeliveryMethod</returns>
         public static DistributedMessageType GetDeliveryMethod(DeliveryMethod deliveryMethod)
         {
-            return (DistributedMessageType)deliveryMethod;
+            return (DistributedMessageType) deliveryMethod;
         }
     }
 }

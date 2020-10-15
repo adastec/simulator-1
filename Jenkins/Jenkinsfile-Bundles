@@ -5,7 +5,7 @@ pipeline {
   agent {
     node {
       label "unity3d-2019.3-vulkan"
-      customWorkspace "/home/jenkins/workspace/simulator-bundles-2019.3.15f1"
+      customWorkspace "/home/jenkins/workspace/simulator-cloud-bundles-2019.3.15f1"
     }
   }
 
@@ -21,11 +21,12 @@ pipeline {
   }
 
   parameters {
-    string(name: "CLOUD_URL", defaultValue: "${SIMULATOR_STAGING_CLOUD_URL}", description: "")
     booleanParam(name: "FORCE_REBUILD", defaultValue: false, description: "")
     booleanParam(name: "UPLOAD", defaultValue: true, description: "Upload bundles to S3")
     string(name: "BUILD_SIMULATOR_ENVIRONMENTS", defaultValue: "${SIMULATOR_ENVIRONMENTS}", description: "Environments to build")
     string(name: "BUILD_SIMULATOR_VEHICLES", defaultValue: "${SIMULATOR_VEHICLES}", description: "Vehicles to build")
+    string(name: "WISE_URL", defaultValue: "${SIMULATOR_WISE_DEV_URL}", description: "Url to use with wise-cli for uploading assets, CLOUD_URL should be used later, not it's separate to test against dev instead of staging")
+    credentials(name: "WISE_CONTENT_UPLOAD_CREDENTIALS_ID", required: true, defaultValue: "WISE_CONTENT_UPLOAD_DEV", description: 'The credentials to be used for uploading asset bundles', credentialType: 'com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl')
   }
 
   environment {
@@ -35,6 +36,7 @@ pipeline {
     PYTHONUNBUFFERED = "1"
     DISPLAY = ":0"
     JENKINS_BUILD_ID = "${BUILD_ID}"
+    S3_DOWNLOAD_HOST = "${S3_DOWNLOAD_HOST}/v2"
   }
 
   stages {
@@ -192,6 +194,37 @@ pipeline {
         }
       }
     } // Upload
+
+    stage("Upload-Wise") {
+      when {
+        environment name: "UPLOAD", value: "true"
+        anyOf {
+          not {
+            environment name: "SIM_ENVIRONMENTS", value: ""
+          }
+          not {
+            environment name: "SIM_VEHICLES", value: ""
+          }
+        }
+      }
+      steps {
+        withCredentials([usernamePassword(credentialsId: '${WISE_CONTENT_UPLOAD_CREDENTIALS_ID}',
+                                          usernameVariable: 'WISE_USERNAME',
+                                          passwordVariable: 'WISE_PASSWORD')
+                        ])
+        {
+          dir("Jenkins") {
+            sh """
+              docker-compose pull upload-bundles-wise
+              UID=`id -u` docker-compose run --rm upload-bundles-wise | tee ../upload-bundles-wise.log
+              # exit PIPESTATUS[0] cannot be used because of:
+              # groovy.lang.MissingPropertyException: No such property: PIPESTATUS for class: groovy.lang.Binding
+              exit `grep ^ERROR: ../upload-bundles-wise.log | wc -l`
+            """
+          }
+        }
+      }
+    } // Upload-Wise
 
   } // stages
 

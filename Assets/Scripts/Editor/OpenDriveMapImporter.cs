@@ -27,7 +27,6 @@ namespace Simulator.Editor
         EditorSettings Settings;
         double GeometrySkipLength = 0.01;
         double LaneSectionSkipLength = 0.5; // skip importing such lane sections
-        float ConnectLaneThreshold = 5.0f; // distance threshold to connect lanes based on link info
         bool IsCreateStopLines = true;
         bool IsMeshNeeded; // Boolean value for traffic light/sign mesh importing.
         bool IsConnectLanes; // Boolean value for whether to connect lanes based on links in OpenDRIVE.
@@ -107,9 +106,8 @@ namespace Simulator.Editor
                     while (!reader.EndOfStream)
                     {
                         string line = reader.ReadLine();
-                        line = Regex.Replace(line, "\"-?nan\"", "\"0\"", RegexOptions.IgnoreCase);
+                        line = Regex.Replace(line, "-?nan", "0", RegexOptions.IgnoreCase);
                         line = Regex.Replace(line, "type=\"bus\"", "type=\"driving\"", RegexOptions.IgnoreCase);
-                        line = Regex.Replace(line, "\"-?1.#.*\"", "\"0\"", RegexOptions.IgnoreCase);
                         writer.WriteLine(line);
                     }
                 }
@@ -137,9 +135,7 @@ namespace Simulator.Editor
                     }
                     catch
                     {
-                        var msg = "Map parsing failed! Please check whether your map has ";
-                        msg += "invalid values, and also check your map version, currently we only support version 1.4.";
-                        Debug.LogError(msg);
+                        Debug.LogError("Sorry, currently we only support version 1.4, please check your map version.");
                         DeleteTempFile(filePath);
                         return false;
                     }
@@ -260,7 +256,6 @@ namespace Simulator.Editor
         // Calculate elevation at the specific length along the reference path
         public double GetElevation(double l, OpenDRIVERoadElevationProfile elevationProfile)
         {
-            if (l < 0) l = 0;
             double elevation = 0;
             if (elevationProfile == null || elevationProfile.elevation == null)
             {
@@ -745,13 +740,7 @@ namespace Simulator.Editor
             {
                 dists.Add(i);
             }
-            if (geometry.length - 0.1 >= 0) dists.Add(geometry.length - 0.1);
-
-            // separate dists at least 1 meter except for the two points around lanesection idx
-            if (dists.Count > 1 && (dists.Last() - dists[dists.Count - 2]) < 0.1)
-            {
-                dists.RemoveAt(dists.Count - 2);
-            }
+            dists.Add(geometry.length - 0.1);
 
             if (sectionIdx < sectionsS.Count && Math.Abs(geometry.s - sectionsS[sectionIdx]) < 0.001)
             {
@@ -774,19 +763,11 @@ namespace Simulator.Editor
                 }
                 else
                 {
-                    var sectionDist = sectionS - geometry.s;
-                    // Remove closest element in dists
-                    if (sectionDist - dists[idx - 1] < dists[idx] - sectionDist)
-                    {
-                        dists.RemoveAt(idx - 1);
-                        idx--;
-                    }
-                    else
-                    {
-                        dists.RemoveAt(idx);
-                    }
-                    dists.Insert(idx++, sectionDist - 0.1);
-                    dists.Insert(idx, sectionDist);
+                    var dist = sectionsS[sectionIdx] - geometry.s;
+                    if (dist - 0.1 < dists[idx-1]) dists.Insert(idx - 1, dist - 0.1);
+                    else dists.Insert(idx, dist - 0.1);
+                    idx++;
+                    dists.Insert(idx, dist);
                     sectionPointsIdx.Add(refPoints.Count + idx);
                     sectionIdx++;
                 }
@@ -1237,7 +1218,7 @@ namespace Simulator.Editor
             return curRightBoundaryPoints;
         }
 
-        public static Vector3 GetNormalDir(List<Vector3> points, int index, bool isLeft)
+        static Vector3 GetNormalDir(List<Vector3> points, int index, bool isLeft)
         {
             Vector3 normalDir = Vector3.zero;
 
@@ -1833,10 +1814,8 @@ namespace Simulator.Editor
                 {
                     foreach (var beforeLane in befores)
                     {
-                        var belowThreshold = (positions[0] - beforeLane.mapWorldPositions.Last()).magnitude < ConnectLaneThreshold;
-                        if (belowThreshold) mapLane.befores.Add(beforeLane);
-                        else Debug.LogWarning($"{mapLane.name} is far away from its before lane {beforeLane.name}, skipping connecting them.");
-                        if (!visitedLaneIdsEnd.Contains(beforeLane.name) && belowThreshold) AdjustStartOrEndPoint(positions, beforeLane, true);
+                        mapLane.befores.Add(beforeLane);
+                        if (!visitedLaneIdsEnd.Contains(beforeLane.name)) AdjustStartOrEndPoint(positions, beforeLane, true);
                         visitedLaneIdsEnd.Add(beforeLane.name);
                     }
                 }
@@ -1845,10 +1824,8 @@ namespace Simulator.Editor
                 {
                     foreach (var afterLane in afters)
                     {
-                        var belowThreshold = (positions.Last() - afterLane.mapWorldPositions.First()).magnitude < ConnectLaneThreshold;
-                        if (belowThreshold) mapLane.afters.Add(afterLane);
-                        else Debug.LogWarning($"{mapLane.name} is far away from its after lane {afterLane.name}, skipping connecting them.");
-                        if (!visitedLaneIdsStart.Contains(afterLane.name) && belowThreshold) AdjustStartOrEndPoint(positions, afterLane, false);
+                        mapLane.afters.Add(afterLane);
+                        if (!visitedLaneIdsStart.Contains(afterLane.name)) AdjustStartOrEndPoint(positions, afterLane, false);
                         visitedLaneIdsStart.Add(afterLane.name);
                     }
                 }

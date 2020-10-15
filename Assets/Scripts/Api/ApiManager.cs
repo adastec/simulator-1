@@ -258,6 +258,7 @@ namespace Simulator.Api
 
             Server = new WebSocketServer(address, Config.ApiPort);
             Server.AddWebSocketService<SimulatorClient>("/");
+            Server.KeepClean = false;
             Server.Start();
             SIM.LogAPI(SIM.API.SimulationCreate);
             Loader.Instance.Network.MessagesManager?.RegisterObject(this);
@@ -280,8 +281,9 @@ namespace Simulator.Api
 
         public void Reset()
         {
-            Events.Clear();
+            SimulatorManager.Instance.AnalysisManager.AnalysisSave();
 
+            Events.Clear();
             Agents.Clear();
             AgentUID.Clear();
             if (SimulatorManager.InstanceAvailable)
@@ -516,6 +518,9 @@ namespace Simulator.Api
                         var line = frame.GetFileLineNumber();
                         SendError($"{ex.Message} at {fname}@{line}");
                     }
+                    // If an exception was thrown from an async api handler, make sure
+                    // we unlock the semaphore, if not done so already
+                    if(ActionsSemaphore.IsLocked) ActionsSemaphore.Unlock();
                 }
             }
         }

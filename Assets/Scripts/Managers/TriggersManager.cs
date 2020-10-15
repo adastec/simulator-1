@@ -23,7 +23,7 @@ public class TriggersManager
                 EffectorNameToType.Add(effector.TypeName, effectorType);
         }
     }
-
+    
     public static List<Type> GetAllEffectorsTypes()
     {
         var types = EffectorNameToType.Values.ToList();

@@ -15,6 +15,7 @@ using UnityEngine;
 using Simulator.Api;
 using Simulator.Map;
 using Simulator.Network.Core.Components;
+using Simulator.Network.Core;
 using Simulator.Network.Core.Connection;
 using Simulator.Network.Core.Identification;
 using Simulator.Network.Core.Messaging;
@@ -22,7 +23,7 @@ using Simulator.Network.Core.Messaging.Data;
 using Simulator.Utilities;
 
 [SelectionBase]
-public class NPCController : MonoBehaviour, ITriggerAgent, IMessageSender, IMessageReceiver, IGloballyUniquelyIdentified
+public class NPCController : MonoBehaviour, IMessageSender, IMessageReceiver, IGloballyUniquelyIdentified
 {
     public NPCBehaviourBase ActiveBehaviour => _ActiveBehaviour;
     private NPCBehaviourBase _ActiveBehaviour;
@@ -52,8 +53,6 @@ public class NPCController : MonoBehaviour, ITriggerAgent, IMessageSender, IMess
 
     // map data
     public string id { get; set; }
-    
-    public Transform AgentTransform => transform;
 
     // targeting
     public Transform frontCenter;
@@ -150,7 +149,8 @@ public class NPCController : MonoBehaviour, ITriggerAgent, IMessageSender, IMess
     private void OnDisable()
     {
         SimulatorManager.Instance.EnvironmentEffectsManager.TimeOfDayChanged -= OnTimeOfDayChange;
-        _ActiveBehaviour.enabled = false;
+        if (_ActiveBehaviour!=null)
+            _ActiveBehaviour.enabled = false;
     }
 
     public void PhysicsUpdate()
@@ -509,10 +509,6 @@ public class NPCController : MonoBehaviour, ITriggerAgent, IMessageSender, IMess
     #endregion
 
     #region physics
-    public float MovementSpeed { get; set; }
-    
-    public Vector3 Acceleration => simpleAcceleration;
-
     public Vector3 GetVelocity()
     {
         return simpleVelocity;
@@ -534,7 +530,7 @@ public class NPCController : MonoBehaviour, ITriggerAgent, IMessageSender, IMess
     #region lights
     public void GetSimulatorTimeOfDay()
     {
-        switch (SimulatorManager.Instance.EnvironmentEffectsManager.currentTimeOfDayState)
+        switch (SimulatorManager.Instance.EnvironmentEffectsManager.CurrentTimeOfDayState)
         {
             case TimeOfDayStateTypes.Day:
                 currentNPCLightState = NPCLightStateTypes.Off;
@@ -911,18 +907,8 @@ public class NPCController : MonoBehaviour, ITriggerAgent, IMessageSender, IMess
     /// <param name="transformToDistribute">Transform that will be distributed</param>
     private void DistributeTransform(Transform transformToDistribute)
     {
-        var network = Loader.Instance.Network;
-        if (transformToDistribute.gameObject.GetComponent<DistributedTransform>() != null)
-            return;
-
-        if (network.IsMaster)
-        {
+        if (transformToDistribute.gameObject.GetComponent<DistributedTransform>() == null)
             transformToDistribute.gameObject.AddComponent<DistributedTransform>();
-        }
-        else if (network.IsClient)
-        {
-            transformToDistribute.gameObject.AddComponent<DistributedTransform>();
-        }
     }
 
     /// <inheritdoc/>

@@ -9,7 +9,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEditor;
 using System.Linq;
 using Simulator.Utilities;
 using Simulator.Controllable;
@@ -38,13 +37,7 @@ namespace Simulator.Map
         public string id
         {
             get { return _id; }
-            set
-            {
-#if UNITY_EDITOR
-                Undo.RecordObject(this, "Changed signal ID");
-#endif
-                _id = value;
-            }
+            set { _id = value; }
         }
 
         public string Key => UID;

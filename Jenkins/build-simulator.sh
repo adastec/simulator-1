@@ -183,7 +183,6 @@ mkdir -p /mnt/AssetBundles/{Controllables,NPCs,Sensors} || true
   -batchmode \
   -force-vulkan \
   -silent-crashes \
-  -quit \
   -projectPath /mnt \
   -executeMethod Simulator.Editor.Build.Run \
   -buildTarget ${BUILD_TARGET} \
@@ -218,7 +217,8 @@ if [ "$1" == "windows" ] && [ -v CODE_SIGNING_PASSWORD ]; then
   mv "${SIGNED}" "${EXE}"
 fi
 
-cp /mnt/config.yml /tmp/${BUILD_OUTPUT}/
+cp /mnt/config.yml.template /tmp/${BUILD_OUTPUT}/config.yml
+
 if [ -v CLOUD_URL ]; then
   echo "cloud_url: \"${CLOUD_URL}\"" >> /tmp/${BUILD_OUTPUT}/config.yml
 fi
@@ -234,9 +234,15 @@ cp /mnt/AssetBundles/Controllables/controllable_* /tmp/${BUILD_OUTPUT}/AssetBund
 mkdir -p /tmp/${BUILD_OUTPUT}/AssetBundles/Sensors
 cp /mnt/AssetBundles/Sensors/sensor_* /tmp/${BUILD_OUTPUT}/AssetBundles/Sensors
 
-if [ ! -z ${SIMULATOR_NPCS+x} ]; then
-    mkdir -p /tmp/${BUILD_OUTPUT}/AssetBundles/NPCs
-    cp -R /mnt/AssetBundles/NPCs/* /tmp/${BUILD_OUTPUT}/AssetBundles/NPCs
+mkdir -p /tmp/${BUILD_OUTPUT}/AssetBundles/NPCs
+cp -R /mnt/AssetBundles/NPCs/* /tmp/${BUILD_OUTPUT}/AssetBundles/NPCs
+
+# TODO: This supports Jenkins only. For local build, need to package FFmpeg in Build.cs
+mkdir -p /tmp/${BUILD_OUTPUT}/simulator_Data/Plugins
+if [ "$1" == "windows" ]; then
+  cp /mnt/Assets/Plugins/VideoCapture/ffmpeg/windows/ffmpeg.exe /tmp/${BUILD_OUTPUT}/simulator_Data/Plugins/ffmpeg.exe
+elif [ "$1" == "linux" ]; then
+  cp /mnt/Assets/Plugins/VideoCapture/ffmpeg/linux/ffmpeg /tmp/${BUILD_OUTPUT}/simulator_Data/Plugins/ffmpeg
 fi
 
 cd /tmp

@@ -30,7 +30,8 @@ namespace Simulator
             [BundleTypes.Bridge]      = 0,
         };
 
-        public static string pluralOf(BundleTypes type) => Enum.GetName(typeof(BundleConfig.BundleTypes), type) + "s";
+        public static string singularOf(BundleTypes type) => Enum.GetName(typeof(BundleTypes), type);
+        public static string pluralOf(BundleTypes type) => Enum.GetName(typeof(BundleTypes), type) + "s";
         public static string ExternalBase = Path.Combine("Assets", "External");
     }
 }

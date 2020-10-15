@@ -30,7 +30,7 @@ namespace Simulator.Editor
         public List<Vector3> mapLocalPositions = new List<Vector3>();
         public List<Vector3> mapWorldPositions = new List<Vector3>();
         public GameObject go;
-        public PositionsData() {}
+
         public PositionsData(MapDataPoints mapDataPoints)
         {
             mapLocalPositions = new List<Vector3>(mapDataPoints.mapLocalPositions);
@@ -45,7 +45,6 @@ namespace Simulator.Editor
         public static Dictionary<MapLine, LineData> Line2LineData = new Dictionary<MapLine, LineData>();
         public List<LineData> befores { get; set; } = new List<LineData>();
         public List<LineData> afters { get; set; } = new List<LineData>();
-        public LineData() {}
         public LineData(MapLine line) : base(line)
         {
             mapLine = line;
@@ -55,32 +54,19 @@ namespace Simulator.Editor
 
     public class LaneData : PositionsData, ILaneLineDataCommon<LaneData>
     {
-        public MapLane mapLane = null;
+        public MapLane mapLane;
         public static Dictionary<MapLane, LaneData> Lane2LaneData = new Dictionary<MapLane, LaneData>();
         public List<LaneData> befores { get; set; } = new List<LaneData>();
         public List<LaneData> afters { get; set; } = new List<LaneData>();
-        public LineData leftLineData = null;
-        public LineData rightLineData = null;
-        public laneType type = laneType.driving;
-        public float speedLimit = 20f;
         public LaneData(MapLane lane) : base(lane)
         {
             mapLane = lane;
             Lane2LaneData[lane] = this;
-            speedLimit = lane.speedLimit;
-        }
-
-        public LaneData(MapPedestrian mapPedestrian) : base(mapPedestrian)
-        {
-            type = laneType.sidewalk;
-            speedLimit = 6.7056f; // 15 mph
         }
     }
 
     public class OpenDriveMapExporter
     {
-        float FakePedestrianLaneWidth = 1.5f;
-        double SideWalkHeight = 0.12;
         MapOrigin MapOrigin;
         MapManagerData MapAnnotationData;
         OpenDRIVE Map;
@@ -119,7 +105,6 @@ namespace Simulator.Editor
             var signalLights = new List<MapSignal>(MapAnnotationData.GetData<MapSignal>());
             var crossWalkList = new List<MapCrossWalk>(MapAnnotationData.GetData<MapCrossWalk>());
             var mapSignList = new List<MapSign>(MapAnnotationData.GetData<MapSign>());
-            var mapPedestrianPaths = new List<MapPedestrian>(MapAnnotationData.GetData<MapPedestrian>());
 
             foreach (var mapSign in mapSignList)
             {
@@ -129,8 +114,8 @@ namespace Simulator.Editor
                 }
             }
 
-            LinesData = GetLinesData(lineSegments);
             LanesData = GetLanesData(laneSegments);
+            LinesData = GetLinesData(lineSegments);
 
             if (!LinkSegments(LanesData)) return false;
             if (!LinkSegments(LinesData)) return false;
@@ -167,37 +152,9 @@ namespace Simulator.Editor
 
             Lanelet2MapExporter.AlignPointsInLines(LanesData);
 
-            CreateFakeLaneDataForPedPaths(mapPedestrianPaths);
             ComputeRoads();
 
             return true;
-        }
-
-        void CreateFakeLaneDataForPedPaths(List<MapPedestrian> mapPedestrianPaths)
-        {
-            foreach (var mapPedestrianPath in mapPedestrianPaths)
-            {
-                MapAnnotations.AddWorldPositions(mapPedestrianPath);
-                var pedLaneData = new LaneData(mapPedestrianPath);
-                ComputeFakeLineData(pedLaneData, out LineData leftLineData, out LineData rightLineData);
-                pedLaneData.leftLineData = leftLineData;
-                pedLaneData.rightLineData = rightLineData;
-                LanesData.Add(pedLaneData);
-            }
-        }
-
-        void ComputeFakeLineData(LaneData laneData, out LineData leftLineData, out LineData rightLineData)
-        {
-            var points = laneData.mapWorldPositions;
-            leftLineData = new LineData();
-            rightLineData = new LineData();
-
-            for (int i = 0; i < points.Count; i++)
-            {
-                Vector3 leftNormalDir = OpenDriveMapImporter.GetNormalDir(points, i, true);
-                leftLineData.mapWorldPositions.Add(points[i] + leftNormalDir * FakePedestrianLaneWidth / 2);
-                rightLineData.mapWorldPositions.Add(points[i] - leftNormalDir * FakePedestrianLaneWidth / 2);
-            }
         }
 
         public static HashSet<LaneData> GetLanesData(HashSet<MapLane> laneSegments)
@@ -207,8 +164,6 @@ namespace Simulator.Editor
             foreach (var lane in laneSegments)
             {
                 var laneData = new LaneData(lane);
-                laneData.leftLineData = LineData.Line2LineData[lane.leftLineBoundry];
-                laneData.rightLineData = LineData.Line2LineData[lane.rightLineBoundry];
                 lanesData.Add(laneData);
                 LaneData.Lane2LaneData[lane] = laneData;
             }
@@ -307,11 +262,12 @@ namespace Simulator.Editor
         {
             // Lanes are stored from left most to right most
             // Reference line is the left boundary line of the left most lane
-            var refLineData = neighborLaneSectionLanesData[0].leftLineData;
-            if (refLineData == null)
+            var refLine = neighborLaneSectionLanesData[0].mapLane.leftLineBoundry;
+            if (refLine == null)
             {
                 Debug.LogError($"Lane: {neighborLaneSectionLanesData[0].go.name} has no left boundary line, its object instance ID is {neighborLaneSectionLanesData[0].go.GetInstanceID()}");
             }
+            var refLineData = LineData.Line2LineData[refLine];
 
             positions = refLineData.mapWorldPositions;
             // Make sure refLine positions has same direction as the road lanes
@@ -327,7 +283,7 @@ namespace Simulator.Editor
         // Function to get neighbor lanes in the same road
         List<LaneData> GetNeighborForwardLaneSectionLanesData(LaneData self, bool fromLeft)
         {
-            if (self == null || self.mapLane == null)
+            if (self == null)
             {
                 return new List<LaneData>();
             }
@@ -424,8 +380,6 @@ namespace Simulator.Editor
                     var leftMostLaneData2 = laneSectionLanesData2.First();
                     var rightMostLaneData2 = laneSectionLanesData2.Last();
 
-                    if (leftMostLaneData2.type == laneType.sidewalk || rightMostLaneData2.type == laneType.sidewalk) continue;
-
                     if (leftMostLaneData1 == leftMostLaneData2 && rightMostLaneData1 == rightMostLaneData2) continue;
                     if (visitedLanesData.Contains(leftMostLaneData2) || visitedLanesData.Contains(rightMostLaneData2)) continue;
 
@@ -499,9 +453,7 @@ namespace Simulator.Editor
 
                         refLineData = GetRefLineAndPositions(neighborLaneSectionLanesData, out refLinePositions);
 
-                        var onlyLine = false;
-                        if (neighborLaneSectionLanesData[0].type == laneType.sidewalk) onlyLine = true;
-                        AddPlanViewElevationLateral(refLinePositions, road, onlyLine);
+                        AddPlanViewElevationLateral(refLinePositions, road);
                         AddLanes(road, refLineData, neighborLaneSectionLanesData, neighborLaneSectionLanesData);
 
                         visitedNLSLIdx.Add(curNLSLIdx);
@@ -544,7 +496,7 @@ namespace Simulator.Editor
                     Add2Lane2RoadId(roadId, consideredLanesData);
 
                     // Add speed limit
-                    var maxSpeedMPH = consideredLanesData[0].speedLimit * 2.23694;
+                    var maxSpeedMPH = consideredLanesData[0].mapLane.speedLimit * 2.23694;
                     road.type = new OpenDRIVERoadType[1]{
                         new OpenDRIVERoadType(){
                             speed = new OpenDRIVERoadTypeSpeed(){
@@ -1447,7 +1399,7 @@ namespace Simulator.Editor
             // TODO Add laneOffset for complex urban Roads
             // Add laneSection
 
-            var center = CreateCenterLane(true, rightNeighborLaneSectionLanesData[0]);
+            var center = CreateCenterLane(true);
             var right = CreateRightLanes(refLineData, rightNeighborLaneSectionLanesData);
             var laneSectionArray = new OpenDRIVERoadLanesLaneSection[1];
 
@@ -1476,12 +1428,12 @@ namespace Simulator.Editor
             road.lanes = lanes;
         }
 
-        void AddPlanViewElevationLateral(List<Vector3> positions, OpenDRIVERoad road, bool onlyLine=false)
+        void AddPlanViewElevationLateral(List<Vector3> positions, OpenDRIVERoad road)
         {
             OpenDRIVERoadGeometry[] geometryArray;
             OpenDRIVERoadElevationProfileElevation[] elevationProfileArray;
             double roadLength;
-            UpdateGeometryArrayElevationProfileArray(positions, out geometryArray, out elevationProfileArray, out roadLength, onlyLine);
+            UpdateGeometryArrayElevationProfileArray(positions, out geometryArray, out elevationProfileArray, out roadLength);
 
             road.length = roadLength;
             road.lengthSpecified = true;
@@ -1493,63 +1445,20 @@ namespace Simulator.Editor
             road.lateralProfile = new OpenDRIVERoadLateralProfile();
         }
 
-        void UpdateGeometryArrayElevationProfileArray(List<Vector3> positions,
-            out OpenDRIVERoadGeometry[] geometryArray,
-            out OpenDRIVERoadElevationProfileElevation[] elevationProfileArray,
-            out double roadLength, bool onlyLine)
+        void UpdateGeometryArrayElevationProfileArray(List<Vector3> positions, out OpenDRIVERoadGeometry[] geometryArray, out OpenDRIVERoadElevationProfileElevation[] elevationProfileArray, out double roadLength)
         {
-            float[] sList;
-            if (onlyLine) geometryArray = FitGeometryLine(positions, out sList);
-            else geometryArray = FitGeometryParaPoly3(positions, out sList);
-
+            geometryArray = new OpenDRIVERoadGeometry[positions.Count - 1];
             elevationProfileArray = new OpenDRIVERoadElevationProfileElevation[positions.Count - 1];
+            double curS = 0;
             for (int i = 0; i < positions.Count - 1; i ++)
             {
                 var point = positions[i];
+                var location = MapOrigin.GetGpsLocation(point);
                 var x = point.x;
                 var y = point.z;
                 var vec = positions[i+1] - positions[i];
                 var length = vec.magnitude;
-                var angle = Mathf.Deg2Rad * Vector2.SignedAngle(Vector2.right, new Vector2(vec.x, vec.z));
-                var line = new OpenDRIVERoadGeometryLine();
-
-                var a = positions[i].y;
-                var b = (positions[i+1].y - positions[i].y) / length; // For line type
-                elevationProfileArray[i] = new OpenDRIVERoadElevationProfileElevation() // TODO: may need to fit as well
-                {
-                    s = sList[i],
-                    a = a,
-                    b = b,
-                    c = 0,
-                    d = 0,
-                    sSpecified = true,
-                    aSpecified = true,
-                    bSpecified = true,
-                    cSpecified = true,
-                    dSpecified = true,
-                };
-
-            }
-            roadLength = sList[sList.Length - 1];
-        }
-
-        OpenDRIVERoadGeometry[] FitGeometryLine(List<Vector3> positions, out float[] sList)
-        {
-            var geometryArray = new OpenDRIVERoadGeometry[positions.Count - 1];
-            float curS = 0;
-            sList = new float[positions.Count];
-            Debug.Assert(positions.Count >= 2, "a line should have at least two points");
-
-            for (int i = 0; i < positions.Count - 1; i ++)
-            {
-                sList[i] = curS;
-
-                var point = positions[i];
-                var x = point.x;
-                var y = point.z;
-                var vec = positions[i+1] - positions[i];
-                var length = vec.magnitude;
-                var angle = Mathf.Deg2Rad * Vector2.SignedAngle(Vector2.right, new Vector2(vec.x, vec.z));
+                var angle = Mathf.Deg2Rad * Vector2.SignedAngle(Vector2.right, new Vector2(vec.x, vec.z)); // TODO Validate
                 var line = new OpenDRIVERoadGeometryLine();
                 geometryArray[i] = new OpenDRIVERoadGeometry()
                 {
@@ -1566,218 +1475,28 @@ namespace Simulator.Editor
                     lengthSpecified = true,
                 };
 
-                curS += length;
-            }
-            sList[positions.Count - 1] = curS; // last s is road length
-
-            return geometryArray;
-        }
-
-        OpenDRIVERoadGeometry[] FitGeometryParaPoly3(List<Vector3> positions, out float[] sList)
-        {
-            var geometryArray = new OpenDRIVERoadGeometry[positions.Count - 1];
-            float curS = 0;
-            sList = new float[positions.Count];
-            Debug.Assert(positions.Count >= 2, "a line should have at least two points");
-
-            // Add 1st coefficients for the first two points
-            if (positions.Count >= 2)
-            {
-                sList[0] = curS;
-                var point = positions[0];
-                var x = point.x;
-                var y = point.z;
-                var vec = positions[1] - positions[0];
-                var length = vec.magnitude;
-                var angle = Mathf.Deg2Rad * Vector2.SignedAngle(Vector2.right, new Vector2(vec.x, vec.z));
-                var line = new OpenDRIVERoadGeometryLine();
-                geometryArray[0] = new OpenDRIVERoadGeometry()
+                var a = positions[i].y;
+                var b = (positions[i+1].y - positions[i].y) / length; // For line type
+                elevationProfileArray[i] = new OpenDRIVERoadElevationProfileElevation()
                 {
                     s = curS,
-                    x = x,
-                    y = y,
-                    hdg = angle, // the angle between this lane segment and x axis (EAST)
-                    length = length,
-                    Items = new OpenDRIVERoadGeometryLine[1]{line},
+                    a = a,
+                    b = b,
+                    c = 0,
+                    d = 0,
                     sSpecified = true,
-                    xSpecified = true,
-                    ySpecified = true,
-                    hdgSpecified = true,
-                    lengthSpecified = true,
+                    aSpecified = true,
+                    bSpecified = true,
+                    cSpecified = true,
+                    dSpecified = true,
                 };
+
                 curS += length;
             }
-
-            if (positions.Count >= 4)
-            {
-                for (var i = 1; i < positions.Count - 2; i++)
-                {
-                    sList[i] = curS;
-                    var point = positions[i];
-                    var x = point.x;
-                    var y = point.z;
-                    var vec = positions[i + 1] - positions[i];
-
-                    var tempList = new List<Vector3>{positions[i-1], positions[i], positions[i+1], positions[i+2]};
-                    var controlPoints = GetControlPoints(tempList, i == 1, i == positions.Count - 3);
-                    var withControlPoints = new List<Vector3>{positions[i]};
-                    withControlPoints.AddRange(controlPoints);
-                    withControlPoints.Add(positions[i+1]);
-                    var tangentDir = withControlPoints[1] - withControlPoints[0];
-                    var angle = Mathf.Deg2Rad * Vector2.SignedAngle(Vector2.right, new Vector2(tangentDir.x, tangentDir.z));
-                    ConvertToUVSpace(withControlPoints, angle);
-
-                    var xList = new List<float>{withControlPoints[0].x, withControlPoints[1].x, withControlPoints[2].x, withControlPoints[3].x};
-                    var yList = new List<float>{withControlPoints[0].z, withControlPoints[1].z, withControlPoints[2].z, withControlPoints[3].z};
-                    BezierFit(xList, out float aU, out float bU, out float cU, out float dU);
-                    BezierFit(yList, out float aV, out float bV, out float cV, out float dV);
-                    var length = GetCubicPolyLength(xList, yList);
-                    geometryArray[i] = new OpenDRIVERoadGeometry()
-                    {
-                        s = curS,
-                        x = x,
-                        y = y,
-                        hdg = angle, // the angle between this lane segment and x axis (EAST)
-                        length = length,
-                        Items = new OpenDRIVERoadGeometryParamPoly3[1]
-                        {
-                            new OpenDRIVERoadGeometryParamPoly3()
-                            {
-                                aU = aU,
-                                bU = bU,
-                                cU = cU,
-                                dU = dU,
-                                aV = aV,
-                                bV = bV,
-                                cV = cV,
-                                dV = dV,
-                                aUSpecified = true,
-                                bUSpecified = true,
-                                cUSpecified = true,
-                                dUSpecified = true,
-                                aVSpecified = true,
-                                bVSpecified = true,
-                                cVSpecified = true,
-                                dVSpecified = true,
-                            }
-                        },
-                        sSpecified = true,
-                        xSpecified = true,
-                        ySpecified = true,
-                        hdgSpecified = true,
-                        lengthSpecified = true,
-                    };
-                    curS += length;
-                }
-            }
-
-            // Add last coefficients for the last two points
-            if (positions.Count >= 3)
-            {
-                var index = positions.Count - 2;
-                sList[index] = curS;
-                var point = positions[index];
-                var x = point.x;
-                var y = point.z;
-                var vec = positions[index + 1] - positions[index];
-                var length = vec.magnitude;
-                var angle = Mathf.Deg2Rad * Vector2.SignedAngle(Vector2.right, new Vector2(vec.x, vec.z));
-                var line = new OpenDRIVERoadGeometryLine();
-                geometryArray[index] = new OpenDRIVERoadGeometry()
-                {
-                    s = curS,
-                    x = x,
-                    y = y,
-                    hdg = angle, // the angle between this lane segment and x axis (EAST)
-                    length = length,
-                    Items = new OpenDRIVERoadGeometryLine[1]{line},
-                    sSpecified = true,
-                    xSpecified = true,
-                    ySpecified = true,
-                    hdgSpecified = true,
-                    lengthSpecified = true,
-                };
-                curS += length;
-            }
-            sList[positions.Count - 1] = curS; // last s is road length
-
-            return geometryArray;
+            roadLength = curS;
         }
 
-        void BezierFit(List<float> pList, out float a, out float b, out float c, out float d)
-        {
-            // f(t, p0, p1, p2, p3) = p0 + (t*((3*p1) - (3*p0))) +
-            // ((t*t)*((3*p0) + (3*p2) - (6*p1))) + ((t*t*t)*((3*p1) - (3*p2) - p0 + p3))
-            a = pList[0];
-            b = -3 * pList[0] + 3 * pList[1];
-            c = 3 * pList[0] - 6 * pList[1] + 3 * pList[2];
-            d = -pList[0] + 3 * pList[1] - 3 * pList[2] + pList[3];
-        }
-
-        List<Vector3> GetControlPoints(List<Vector3> points, bool isFirst, bool isLast)
-        {
-            var offset = (points[2] - points[1]).magnitude / 4; // TODO: better logic to get offset
-            var controlPoints = new List<Vector3>();
-            var dir01 = (points[1] - points[0]).normalized;
-            var dir12 = (points[2] - points[1]).normalized;
-            var dir1 = (dir01 + dir12).normalized;
-            if (isFirst) dir1 = dir01;
-            var control1 = points[1] + dir1 * offset;
-
-            var dir32 = (points[2] - points[3]).normalized;
-            var dir21 = (points[1] - points[2]).normalized;
-            var dir2 = (dir32 + dir21).normalized;
-            if (isLast) dir2 = dir32;
-            var control2 = points[2] + dir2 * offset;
-
-            return new List<Vector3>{control1, control2};
-        }
-
-        void ConvertToUVSpace(List<Vector3> points, float angle)
-        {
-            var point0 = points[0];
-            points[0] -= point0;
-            for (int i = 1; i < points.Count; ++i)
-            {
-                points[i] -= point0;
-                points[i] = Quaternion.Euler(0f, (float)(angle * 180f / Math.PI), 0f) * points[i];
-            }
-        }
-
-        static float GetCubicPolyLength(List<float> xList, List<float> yList)
-        {
-            int steps = 10;
-            float length = 0, preX = 0, preY = 0;
-            for (int i = 0; i <= steps; ++i)
-            {
-                float t = i / steps;
-                float curX = GetCubicBezierValue(xList, t);
-                float curY = GetCubicBezierValue(yList, t);
-                if (i > 0)
-                {
-                    float diffX = curX - preX;
-                    float diffY = curY - preY;
-                    length += (float)Math.Sqrt(diffX * diffX + diffY * diffY);
-                }
-                preX = curX;
-                preY = curY;
-            }
-
-            return length;
-        }
-
-        static float GetCubicBezierValue(List<float> weights, float t)
-        {
-            // refer https://pomax.github.io/bezierinfo/
-            var t2 = t * t;
-            var t3 = t2 * t;
-            var mt = 1 - t;
-            var mt2 = mt * mt;
-            var mt3 = mt2 * mt;
-            return weights[0] * mt3 + 3 * weights[1] * mt2 * t + 3 * weights[2] * mt * t2 + weights[3] * t3;
-        }
-
-        OpenDRIVERoadLanesLaneSectionCenter CreateCenterLane(bool isOneWay, LaneData laneData)
+        OpenDRIVERoadLanesLaneSectionCenter CreateCenterLane(bool isOneWay)
         {
             var type = roadmarkType.solidsolid;
             if (isOneWay) type = roadmarkType.solid;
@@ -1799,7 +1518,7 @@ namespace Simulator.Editor
             var center = new OpenDRIVERoadLanesLaneSectionCenter();
             center.lane = new centerLane()
             {
-                type = laneData.type,
+                type = laneType.driving,
                 level = singleSide.@false,
                 link = new centerLaneLink(),
                 roadMark = new centerLaneRoadMark[1]{roadMark},
@@ -1824,7 +1543,8 @@ namespace Simulator.Editor
             {
                 var rightLaneData = neighborLaneSectionLanesData[i];
                 LaneData2LaneId[rightLaneData] = rightId;
-                var curRightBoundaryLineData = rightLaneData.rightLineData;
+                var curRightBoundaryLine = rightLaneData.mapLane.rightLineBoundry;
+                var curRightBoundaryLineData = LineData.Line2LineData[curRightBoundaryLine];
 
                 var laneChangeType = laneChange.both;
                 var roadMarkType = roadmarkType.broken;
@@ -1853,7 +1573,7 @@ namespace Simulator.Editor
                 var lane = new lane()
                 {
                     id = rightId--,
-                    type = rightLaneData.type,
+                    type = laneType.driving,
                     level = singleSide.@false,
                     link = new laneLink(),
 
@@ -1864,33 +1584,12 @@ namespace Simulator.Editor
                     typeSpecified = true,
                     levelSpecified = true,
                 };
-                if (rightLaneData.type == laneType.sidewalk)
-                {
-                    lane.height = GetLaneHeight();
-                }
 
                 right.lane[i] = lane;
                 curLeftBoundaryLineData = curRightBoundaryLineData;
             }
 
             return right;
-        }
-
-        laneHeight[] GetLaneHeight()
-        {
-            return new laneHeight[1]
-            {
-                new laneHeight()
-                {
-                    sOffset = 0,
-                    inner = SideWalkHeight,
-                    outer = SideWalkHeight,
-
-                    sOffsetSpecified = true,
-                    innerSpecified = true,
-                    outerSpecified = true,
-                }
-            };
         }
 
         OpenDRIVERoadLanesLaneSectionLeft CreateLeftLanes(LineData refLineData, List<LaneData> neighborLaneSectionLanesData)
@@ -1906,7 +1605,8 @@ namespace Simulator.Editor
             {
                 var leftLaneData = neighborLaneSectionLanesData[i];
                 LaneData2LaneId[leftLaneData] = leftId;
-                var curRightBoundaryLineData = leftLaneData.rightLineData;
+                var curRightBoundaryLine = leftLaneData.mapLane.rightLineBoundry;
+                var curRightBoundaryLineData = LineData.Line2LineData[curRightBoundaryLine];
 
                 var laneChangeType = laneChange.both;
                 var roadMarkType = roadmarkType.broken;
@@ -1935,7 +1635,7 @@ namespace Simulator.Editor
                 var lane = new lane()
                 {
                     id = leftId++,
-                    type = leftLaneData.type,
+                    type = laneType.driving,
                     level = singleSide.@false,
                     link = new laneLink(),
 
@@ -1947,10 +1647,6 @@ namespace Simulator.Editor
                     levelSpecified = true,
                 };
 
-                if (leftLaneData.type == laneType.sidewalk)
-                {
-                    lane.height = GetLaneHeight();
-                }
                 left.lane[neighborLaneSectionLanesData.Count - 1 - i] = lane;
                 curLeftBoundaryLineData = curRightBoundaryLineData;
             }
@@ -2169,8 +1865,7 @@ namespace Simulator.Editor
             var stack = new Stack<LaneData>(); // lanes to start dfs
             foreach (var laneSegment in LanesData)
             {
-                if (laneSegment.befores.Count == 0
-                    || laneSegment.type == laneType.sidewalk)
+                if (laneSegment.befores.Count == 0)
                 {
                     startingLanes.Add(laneSegment);
                     stack.Push(laneSegment);
@@ -2214,8 +1909,9 @@ namespace Simulator.Editor
             return startingLanes;
         }
 
-        public void Export(string filePath)
+        public bool Export(string filePath)
         {
+            bool success = false;
             if (Calculate())
             {
                 var serializer = new XmlSerializer(typeof(OpenDRIVE));
@@ -2227,11 +1923,13 @@ namespace Simulator.Editor
                 }
 
                 Debug.Log("Successfully generated and exported OpenDRIVE Map! If your map looks weird at some roads, you might have wrong boundary lines for some lanes.");
+                success = true;
             }
             else
             {
                 Debug.LogError("Failed to export OpenDRIVE Map!");
             }
+            return success;
         }
 
         static Vector2 ToVector2(Vector3 pt)

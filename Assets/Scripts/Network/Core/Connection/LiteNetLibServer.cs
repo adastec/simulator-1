@@ -9,11 +9,12 @@ namespace Simulator.Network.Core.Connection
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
+    using System.Linq;
     using System.Net;
     using System.Net.Sockets;
     using LiteNetLib;
     using Messaging.Data;
-
     using Simulator.Network.Core.Messaging;
 
     /// <summary>
@@ -24,7 +25,7 @@ namespace Simulator.Network.Core.Connection
         /// <summary>
         /// Connection application key
         /// </summary>
-        public const string ApplicationKey = "SimulatorServer"; // TODO: this can be unique per run
+        public const string ApplicationKey = "LGSVL";
 
         /// <summary>
         /// The LiteNetLib net manager
@@ -39,15 +40,18 @@ namespace Simulator.Network.Core.Connection
 
         /// <inheritdoc/>
         public bool IsServer => true;
-        
+
         /// <inheritdoc/>
         public int Port { get; private set; }
 
         /// <inheritdoc/>
-        public int Timeout => 30000;
+        public int Timeout { get; private set; }
 
         /// <inheritdoc/>
         public int ConnectedPeersCount => peers.Count;
+
+        /// <inheritdoc/>
+        public List<string> AcceptableIdentifiers { get; } = new List<string>();
 
         /// <inheritdoc/>
         public event Action<IPeerManager> PeerConnected;
@@ -59,13 +63,19 @@ namespace Simulator.Network.Core.Connection
         public event Action<DistributedMessage> MessageReceived;
 
         /// <inheritdoc/>
-        public bool Start(int port)
+        public bool Start(int port, int timeout)
         {
             Port = port;
+            Timeout = timeout;
             NetDebug.Logger = this;
             netServer = new NetManager(this)
-                {BroadcastReceiveEnabled = false, UpdateTime = 5, DisconnectTimeout = Timeout};
-            return netServer.Start(port);
+                {BroadcastReceiveEnabled = false, UpdateTime = 5, DisconnectTimeout = timeout};
+            var result = netServer.Start(port);
+            if (result)
+                Log.Info($"{GetType().Name} started using the port '{port}'.");
+            else
+                Log.Error($"{GetType().Name} failed to start using the port '{port}'.");
+            return result;
         }
 
         /// <inheritdoc/>
@@ -73,13 +83,15 @@ namespace Simulator.Network.Core.Connection
         {
             NetDebug.Logger = null;
             netServer?.Stop();
+            Log.Info($"{GetType().Name} was stopped.");
         }
 
         /// <inheritdoc/>
-        public IPeerManager Connect(IPEndPoint endPoint)
+        public IPeerManager Connect(IPEndPoint endPoint, string identifier)
         {
-            var peerManager = new LiteNetLibPeerManager(netServer.Connect(endPoint, ApplicationKey));
+            var peerManager = new LiteNetLibPeerManager(netServer.Connect(endPoint, identifier));
             peers.Add(peerManager.PeerEndPoint, peerManager);
+            Log.Info($"{GetType().Name} starts the connection to a peer with address '{endPoint.ToString()}'.");
             return peerManager;
         }
 
@@ -99,8 +111,21 @@ namespace Simulator.Network.Core.Connection
         /// <inheritdoc/>
         public void Broadcast(DistributedMessage distributedMessage)
         {
-            foreach (var peer in peers)
-                peer.Value.Send(distributedMessage);
+            if (netServer != null)
+            {
+                var bytesStack = distributedMessage.Content;
+                try
+                {
+                    NetworkStatistics.ReportSentPackage(bytesStack.Count);
+                    netServer.SendToAll(bytesStack.RawData, 0, bytesStack.Count,
+                        LiteNetLibPeerManager.GetDeliveryMethod(distributedMessage.Type));
+                }
+                catch (TooBigPacketException)
+                {
+                    Log.Error($"Too large message to be sent: {bytesStack.Count}.");
+                }
+            }
+
             distributedMessage.Release();
         }
 
@@ -114,7 +139,11 @@ namespace Simulator.Network.Core.Connection
         public void OnPeerConnected(NetPeer peer)
         {
             if (!peers.TryGetValue(peer.EndPoint, out var peerManager))
+            {
                 peerManager = new LiteNetLibPeerManager(peer);
+                peers.Add(peer.EndPoint, peerManager);
+            }
+
             PeerConnected?.Invoke(peerManager);
         }
 
@@ -161,7 +190,36 @@ namespace Simulator.Network.Core.Connection
         /// <inheritdoc/>
         public void OnConnectionRequest(ConnectionRequest request)
         {
-            request.AcceptIfKey(LiteNetLibClient.ApplicationKey);
+            var key = request.Data.GetString();
+            if (ApplicationKey != key)
+            {
+                request.Reject();
+                Log.Warning(
+                    $"{GetType().Name} received and rejected a connection request from address '{request.RemoteEndPoint.Address}', invalid key was passed: {key}, current UTC time: {DateTime.UtcNow.ToString(CultureInfo.InvariantCulture)}.");
+                return;
+            }
+
+            var identifier = request.Data.GetString();
+            var peerConnected = peers.Any(peer => peer.Value.Identifier == identifier);
+            if (peerConnected)
+            {
+                //Connection to same peer is already established, probably request send from other sub-network
+                request.Reject();
+                return;
+            }
+
+            var acceptIdentifier = AcceptableIdentifiers.Contains(identifier);
+            if (!acceptIdentifier)
+            {
+                request.Reject();
+                Log.Warning(
+                    $"{GetType().Name} received and rejected a connection request from address '{request.RemoteEndPoint.Address}', unacceptable identifier was passed: {identifier}, current UTC time: {DateTime.UtcNow.ToString(CultureInfo.InvariantCulture)}.");
+                return;
+            }
+
+            Log.Info(
+                $"{GetType().Name} received and accepted a connection request from address '{request.RemoteEndPoint.Address}', current UTC time: {DateTime.UtcNow.ToString(CultureInfo.InvariantCulture)}.");
+            request.Accept();
         }
 
         /// <inheritdoc/>
@@ -177,7 +235,7 @@ namespace Simulator.Network.Core.Connection
         /// <returns>Corresponding MessageType to the given LiteNetLib DeliveryMethod</returns>
         public static DistributedMessageType GetDeliveryMethod(DeliveryMethod deliveryMethod)
         {
-            return (DistributedMessageType)deliveryMethod;
+            return (DistributedMessageType) deliveryMethod;
         }
     }
 }

@@ -10,7 +10,6 @@ using System.Collections.Generic;
 using Simulator;
 using Simulator.Api;
 using System.Linq;
-using Simulator.Sensors;
 
 public class VehicleController : AgentController
 {
@@ -21,7 +20,7 @@ public class VehicleController : AgentController
     private Rigidbody rb;
 
     private List<IVehicleInputs> inputs = new List<IVehicleInputs>();
-    private IVehicleInputs[] interfaceScripts = new IVehicleInputs[] { }; //ADASTEC
+
     private string vehicleName;
     private Vector3 initialPosition;
     private Quaternion initialRotation;
@@ -92,13 +91,11 @@ public class VehicleController : AgentController
         actions = GetComponent<VehicleActions>();
         AgentController = GetComponent<AgentController>();
         rb = GetComponent<Rigidbody>();
-        var monoBehaviourObjects = GetComponentsInChildren<MonoBehaviour>(); //ADASTEC
-        interfaceScripts = (from a in monoBehaviourObjects where a.GetType().GetInterfaces().Any(k => k == typeof(IVehicleInputs)) select (IVehicleInputs)a).ToArray(); //ADASTEC
-        //inputs.AddRange(GetComponentsInChildren<IVehicleInputs>());
+        inputs.AddRange(GetComponentsInChildren<IVehicleInputs>());
         initialPosition = transform.position;
         initialRotation = transform.rotation;
     }
-    public VehicleControlSensor vcs;
+
     private void UpdateInput()
     {
         if (sticky) return;
@@ -106,17 +103,17 @@ public class VehicleController : AgentController
         SteerInput = AccelInput = BrakeInput = 0f;
         
         // get all inputs
-        foreach (var input in interfaceScripts)
+        foreach (var input in inputs)
         {
-                SteerInput += input.SteerInput;
-                AccelInput += input.AccelInput;
-                BrakeInput += input.BrakeInput;
+            SteerInput += input.SteerInput;
+            AccelInput += input.AccelInput;
+            BrakeInput += input.BrakeInput;
         }
 
         // clamp if over
         SteerInput = Mathf.Clamp(SteerInput, -1f, 1f);
         AccelInput = Mathf.Clamp(AccelInput, -1f, 1f);
-        BrakeInput = Mathf.Clamp(BrakeInput, -1f, 1f); // TODO use for all input types just wheel now
+        BrakeInput = Mathf.Clamp01(BrakeInput); // TODO use for all input types just wheel now
     }
 
     private void UpdateInputAPI()
@@ -129,8 +126,10 @@ public class VehicleController : AgentController
 
     private void UpdateLights()
     {
+        if (actions == null)
+            return;
         // brakes
-        if (AccelInput < 0 || BrakeInput < 0) //before= (AccelInput < 0 || BrakeInput > 0)
+        if (AccelInput < 0 || BrakeInput > 0)
             actions.BrakeLights = true;
         else
             actions.BrakeLights = false;

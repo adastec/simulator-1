@@ -13,6 +13,7 @@ using SimpleJSON;
 using Simulator.Utilities;
 using Simulator.Map;
 using Simulator;
+using Simulator.Editor;
 
 [InitializeOnLoad]
 public static class SimulatorManagerEditor
@@ -60,21 +61,8 @@ public static class SimulatorManagerEditor
         if (state == PlayModeStateChange.EnteredPlayMode)
         {
             Scene scene = SceneManager.GetActiveScene();
-            if (scene.name == "LoaderScene")
-            {
-                var data = EditorPrefs.GetString("Simulator/DevelopmentSettings");
-                if (data != null)
-                {
-                    var json = JSONNode.Parse(data);
-                    if (json["EnableAPI"] && json["EnableAPI"].AsBool)
-                    {
-                        var api = Object.Instantiate(Loader.Instance.ApiManagerPrefab);
-                        api.name = "ApiManager";
-                        Loader.Instance.LoaderUI.SetLoaderUIState(LoaderUI.LoaderUIStateType.READY);
-                    }
-                }
-            }
-            else
+
+            if (scene.name != "LoaderScene")
             {
                 var loader = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/Managers/Loader.prefab");
                 if (loader == null)

@@ -140,12 +140,14 @@ public class SensorsController : MonoBehaviour, IMessageSender, IMessageReceiver
         var parents = new Dictionary<string, GameObject>()
         {
             {string.Empty, gameObject},
+            //Needed for WISE Parsing
+            {"null", gameObject},
         };
 
         var agentController = GetComponent<AgentController>();
         var requested = JSONNode.Parse(sensors).Children.ToList();
         var baseLink = transform.GetComponentInChildren<BaseLink>();
-        Debug.Log("looking for BaseLink");
+
         while (requested.Count != 0)
         {
             int requestedCount = requested.Count;

@@ -4,7 +4,6 @@
  * This software contains code licensed as described in LICENSE.
  *
  */
-using ICSharpCode.SharpZipLib.Zip;
 using Simulator.Bridge;
 using Simulator.Controllable;
 using Simulator.Sensors;
@@ -15,29 +14,29 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Text;
 using UnityEngine;
 using VirtualFileSystem;
 using YamlDotNet.Serialization;
+using Simulator.Database;
+using Simulator.Database.Services;
 
 namespace Simulator.Web
 {
     public static class Config
     {
-        public static string WebHost = "localhost";
-        public static int WebPort = 8080;
-
         public static int sessionTimeout = 60*60*24*365;
 
-        public static string ApiHost = WebHost;
+        public static string ApiHost = "localhost";
         public static int ApiPort = 8181;
 
         public static bool RunAsMaster = true;
-
-        public static string CloudUrl = "https://account.lgsvlsimulator.com";
+        
+        public static string CloudUrl = "https://wise.lgsvlsimulator.com";
         public static string Username;
         public static string Password;
         public static string SessionGUID;
+        public static string SimID;
+
         public static bool AgreeToLicense = false;
 
         public static bool Headless = false;
@@ -64,14 +63,12 @@ namespace Simulator.Web
 
         public static int DefaultPageSize = 100;
 
-        public static byte[] salt { get; set; }
-
 #if UNITY_EDITOR
         [UnityEditor.InitializeOnLoadMethod]
 #else
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
 #endif
-        static void Initialize()
+        private static void Initialize()
         {
             Root = Path.Combine(Application.dataPath, "..");
             PersistentDataPath = Application.persistentDataPath;
@@ -90,35 +87,55 @@ namespace Simulator.Web
                 return;
             }
 
-            BridgePlugins.Load();
             LoadBuiltinAssets();
             LoadExternalAssets();
             Sensors = SensorTypes.ListSensorFields(SensorPrefabs);
+            BridgePlugins.Load();
 
             ParseConfigFile();
+
             if (!Application.isEditor)
             {
                 ParseCommandLine();
             }
+
+            DatabaseManager.Init();
+
+            ClientSettingsService csservice = new ClientSettingsService();
+            if (string.IsNullOrEmpty(SimID))
+            {
+                SimID = csservice.GetOrMake().simid;
+            }
+
+            csservice.SetSimID(SimID);
         }
 
         public delegate void AssetLoadFunc(Manifest manifest, VfsEntry dir);
 
-        static void checkDir(VfsEntry dir, AssetLoadFunc loadFunc)
+        private static void CheckDir(VfsEntry dir, AssetLoadFunc loadFunc)
         {
-            if(dir == null) return;
-            var manifestFile = dir.Find("manifest");
+            if (dir == null)
+            {
+                return;
+            }
+
+            var manifestFile = dir.Find("manifest.json");
             if (manifestFile != null && manifestFile.IsFile)
             {
                 Debug.Log($"found manifest at {manifestFile.Path}");
-                using(var reader = new StreamReader(manifestFile.SeekableStream())) {
+                using (var reader = new StreamReader(manifestFile.SeekableStream()))
+                {
                     try
                     {
-                        if(reader == null) Debug.Log("no reader?");
+                        if (reader == null)
+                        {
+                            Debug.Log("no reader cannot open stream");
+                        }
                         Manifest manifest;
                         try
                         {
-                            manifest = new Deserializer().Deserialize<Manifest>(reader);
+                            var buffer = reader.ReadToEnd();
+                            manifest = Newtonsoft.Json.JsonConvert.DeserializeObject<Manifest>(buffer);
                         }
                         catch
                         {
@@ -136,13 +153,12 @@ namespace Simulator.Web
             {
                 foreach (var entry in dir)
                 {
-                    checkDir(entry, loadFunc);
+                    CheckDir(entry, loadFunc);
                 }
             }
-
         }
 
-        static void LoadBuiltinAssets()
+        private static void LoadBuiltinAssets()
         {
             var npcSettings = NPCSettings.Load();
             var prefabs = new[]
@@ -154,6 +170,7 @@ namespace Simulator.Web
                 "BoxTruck",
                 "SchoolBus",
             };
+
             foreach (var entry in prefabs)
             {
                 var go = npcSettings.NPCPrefabs.Find(x => x.name == entry) as GameObject;
@@ -184,7 +201,8 @@ namespace Simulator.Web
                 });
             }
 
-            var behaviours = new[]{
+            var behaviours = new []
+            {
                 typeof(NPCLaneFollowBehaviour),
                 typeof(NPCWaypointBehaviour),
                 typeof(NPCManualBehaviour),
@@ -195,22 +213,35 @@ namespace Simulator.Web
             }
         }
 
-        static void LoadExternalAssets()
+        private static void SaveConfigFile()
+        {
+            try
+            {
+                File.WriteAllText(Path.Combine(Root, "config.yml"), new Serializer().Serialize(ConvertConfigFile()));
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError(ex);
+            }
+        }
+
+        private static void LoadExternalAssets()
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
 
             var dir = Path.Combine(Application.dataPath, "..", "AssetBundles");
             var vfs = VfsEntry.makeRoot(dir);
+
             // descend into each known dir looking for only specific asset types. todo: add asset type to manifest?
-            checkDir(vfs.GetChild(BundleConfig.pluralOf(BundleConfig.BundleTypes.Controllable)), LoadControllablePlugin);
-            checkDir(vfs.GetChild(BundleConfig.pluralOf(BundleConfig.BundleTypes.Bridge)), LoadBridgePlugin); // NOTE: bridges must be loaded before sensor plugins
-            checkDir(vfs.GetChild(BundleConfig.pluralOf(BundleConfig.BundleTypes.Sensor)), LoadSensorPlugin);
-            checkDir(vfs.GetChild(BundleConfig.pluralOf(BundleConfig.BundleTypes.NPC)), loadNPCAsset);
+            CheckDir(vfs.GetChild(BundleConfig.pluralOf(BundleConfig.BundleTypes.Controllable)), LoadControllablePlugin);
+            CheckDir(vfs.GetChild(BundleConfig.pluralOf(BundleConfig.BundleTypes.Bridge)), LoadBridgePlugin); // NOTE: bridges must be loaded before sensor plugins
+            CheckDir(vfs.GetChild(BundleConfig.pluralOf(BundleConfig.BundleTypes.Sensor)), LoadSensorPlugin);
+            CheckDir(vfs.GetChild(BundleConfig.pluralOf(BundleConfig.BundleTypes.NPC)), LoadNPCAsset);
 
             Debug.Log($"Loaded {NPCBehaviours.Count} NPCs behaviours and {NPCVehicles.Count} NPC models in {sw.Elapsed}");
         }
 
-        private static Assembly loadAssembly(VfsEntry dir, string name)
+        private static Assembly LoadAssembly(VfsEntry dir, string name)
         {
             var dll = dir.Find(name);
             if (dll == null)
@@ -224,15 +255,15 @@ namespace Simulator.Web
 
         public static void LoadBridgePlugin(Manifest manifest, VfsEntry dir)
         {
-            if (manifest.bundleFormat != BundleConfig.Versions[BundleConfig.BundleTypes.Bridge])
+            if (manifest.assetFormat != BundleConfig.Versions[BundleConfig.BundleTypes.Bridge])
             {
-                throw new Exception($"manifest version mismatch, expected {BundleConfig.Versions[BundleConfig.BundleTypes.Sensor]}, got {manifest.bundleFormat}");
+                throw new Exception($"Manifest version mismatch, expected {BundleConfig.Versions[BundleConfig.BundleTypes.Bridge]}, got {manifest.assetFormat}");
             }
 
-            var pluginSource = loadAssembly(dir, $"{manifest.assetName}.dll");
+            var pluginSource = LoadAssembly(dir, $"{manifest.assetName}.dll");
             foreach (Type ty in pluginSource.GetTypes())
             {
-                if (typeof(IBridgeFactory).IsAssignableFrom(ty))
+                if (typeof(ISensorBridgePlugin).IsAssignableFrom(ty))
                 {
                     var bridgeFactory = Activator.CreateInstance(ty) as IBridgeFactory;
                     BridgePlugins.Add(bridgeFactory);
@@ -242,12 +273,12 @@ namespace Simulator.Web
 
         public static void LoadSensorPlugin(Manifest manifest, VfsEntry dir) 
         {
-            if (manifest.bundleFormat != BundleConfig.Versions[BundleConfig.BundleTypes.Sensor])
+            if (manifest.assetFormat != BundleConfig.Versions[BundleConfig.BundleTypes.Sensor])
             {
-                throw new Exception($"manifest version mismatch, expected {BundleConfig.Versions[BundleConfig.BundleTypes.Sensor]}, got {manifest.bundleFormat}");
+                throw new Exception($"Manifest version mismatch, expected {BundleConfig.Versions[BundleConfig.BundleTypes.Sensor]}, got {manifest.assetFormat}");
             }
 
-            Assembly pluginSource = loadAssembly(dir, $"{manifest.assetName}.dll");
+            Assembly pluginSource = LoadAssembly(dir, $"{manifest.assetName}.dll");
 
             foreach (Type ty in pluginSource.GetTypes())
             {
@@ -270,13 +301,14 @@ namespace Simulator.Web
 
         public static void LoadControllablePlugin(Manifest manifest, VfsEntry dir) 
         {
-            if(manifest.bundleFormat != BundleConfig.Versions[BundleConfig.BundleTypes.Controllable]) {
-                throw new Exception($"manifest version mismatch, expected {BundleConfig.Versions[BundleConfig.BundleTypes.Controllable]}, got {manifest.bundleFormat}");
+            if (manifest.assetFormat != BundleConfig.Versions[BundleConfig.BundleTypes.Controllable])
+            {
+                throw new Exception($"manifest version mismatch, expected {BundleConfig.Versions[BundleConfig.BundleTypes.Controllable]}, got {manifest.assetFormat}");
             }
             var texStream = dir.Find($"{manifest.assetGuid}_controllable_textures").SeekableStream();
             var textureBundle = AssetBundle.LoadFromStream(texStream, 0, 1 << 20);
 
-            Assembly pluginSource = loadAssembly(dir, $"{manifest.assetName}.dll");
+            Assembly pluginSource = LoadAssembly(dir, $"{manifest.assetName}.dll");
 
             string platform = SystemInfo.operatingSystemFamily == OperatingSystemFamily.Windows ? "windows" : "linux";
             var pluginStream = dir.Find($"{manifest.assetGuid}_controllable_main_{platform}").SeekableStream();
@@ -289,18 +321,21 @@ namespace Simulator.Web
             Controllables.Add(manifest.assetName, pluginBundle.LoadAsset<GameObject>(pluginAssets[0]).GetComponent<IControllable>());
         }
 
-        private static void loadNPCAsset(Manifest manifest, VfsEntry dir)
+        private static void LoadNPCAsset(Manifest manifest, VfsEntry dir)
         {
-            if (manifest.bundleFormat != BundleConfig.Versions[BundleConfig.BundleTypes.NPC])
+            if (manifest.assetFormat != BundleConfig.Versions[BundleConfig.BundleTypes.NPC])
             {
-                throw new Exception($"manifest version mismatch, expected {BundleConfig.Versions[BundleConfig.BundleTypes.NPC]}, got {manifest.bundleFormat}");
+                throw new Exception($"manifest version mismatch, expected {BundleConfig.Versions[BundleConfig.BundleTypes.NPC]}, got {manifest.assetFormat}");
             }
-            Assembly pluginSource = loadAssembly(dir, $"{manifest.assetName}.dll");
+            Assembly pluginSource = LoadAssembly(dir, $"{manifest.assetName}.dll");
             if (pluginSource != null)
             {
                 foreach (Type ty in pluginSource.GetTypes())
                 {
-                    if(ty.IsAbstract) continue;
+                    if (ty.IsAbstract)
+                    {
+                        continue;
+                    }
                     if (typeof(NPCBehaviourBase).IsAssignableFrom(ty))
                     {
                         NPCBehaviours.Add(ty.ToString(), ty);
@@ -312,6 +347,7 @@ namespace Simulator.Web
                     }
                 }
             }
+
             var texEntry = dir.Find($"{manifest.assetGuid}_npc_textures");
             AssetBundle textureBundle = null;
             if (texEntry != null)
@@ -350,7 +386,7 @@ namespace Simulator.Web
                 });
             }
 
-            if(pluginEntry == null && pluginSource == null)
+            if (pluginEntry == null && pluginSource == null)
             {
                 Debug.LogError("Neither assembly nor prefab found in "+manifest.assetName);
             }
@@ -361,10 +397,8 @@ namespace Simulator.Web
             }
         }
 
-        class YamlConfig
+        private class YamlConfig
         {
-            public string hostname { get; set; } = Config.WebHost;
-            public int port { get; set; } = Config.WebPort;
             public bool headless { get; set; } = Config.Headless;
             public bool client { get; set; } = !Config.RunAsMaster;
             public bool read_only { get; set; } = false;
@@ -374,7 +408,7 @@ namespace Simulator.Web
             public string data_path { get; set; } = Config.PersistentDataPath;
         }
 
-        static YamlConfig LoadConfigFile(string file)
+        private static YamlConfig LoadConfigFile(string file)
         {
             using (var fs = File.OpenText(file))
             {
@@ -391,8 +425,20 @@ namespace Simulator.Web
             return null;
         }
 
+        private static YamlConfig ConvertConfigFile()
+        {
+            return new YamlConfig()
+            {
+                api_hostname = ApiHost,
+                api_port = ApiPort,
+                data_path = PersistentDataPath,
+                cloud_url = CloudUrl,
+                client = !RunAsMaster,
+                headless = Headless
+            };
+        }
 
-        static void ParseConfigFile()
+        public static void ParseConfigFile()
         {
             var configFile = Path.Combine(Root, "config.yml");
             if (!File.Exists(configFile))
@@ -404,12 +450,9 @@ namespace Simulator.Web
             if (config == null)
             {
                 return;
-            }
+            }            
 
-            WebHost = config.hostname;
-            WebPort = config.port;
-
-            ApiHost = config.api_hostname ?? WebHost;
+            ApiHost = config.api_hostname ?? "localhost";
             ApiPort = config.api_port;
 
             PersistentDataPath = config.data_path;
@@ -425,35 +468,49 @@ namespace Simulator.Web
             Headless = config.headless;
         }
 
-        static void ParseCommandLine()
+        private static void ParseCommandLine()
         {
             var args = Environment.GetCommandLineArgs();
             for (int i = 1; i < args.Length; i++)
             {
                 switch (args[i])
                 {
-                    case "--hostname":
-                    case "-h":
+                    case "--simid":
                         if (i == args.Length - 1)
                         {
-                            Debug.LogError("No value for hostname provided!");
+                            Debug.LogError("No value for sim id provided!");
                             Application.Quit(1);
                         }
-                        WebHost = args[++i];
+                        SimID = args[++i];
                         break;
-                    case "--port":
-                    case "-p":
+                    case "--cloudurl":
                         if (i == args.Length - 1)
                         {
-                            Debug.LogError("No value for port provided!");
+                            Debug.LogError("No value for cloud url provided!");
                             Application.Quit(1);
                         }
-                        if (!int.TryParse(args[++i], out WebPort))
+                        CloudUrl = args[++i];
+                        break;
+                    case "--apihost":
+                        if (i == args.Length - 1)
+                        {
+                            Debug.LogError("No value for api hostname provided!");
+                            Application.Quit(1);
+                        }
+                        ApiHost = args[++i];
+                        break;
+                    case "--apiport":
+                        if (i == args.Length - 1)
+                        {
+                            Debug.LogError("No value for api port provided!");
+                            Application.Quit(1);
+                        }
+
+                        if (!int.TryParse(args[++i], out ApiPort))
                         {
                             Debug.LogError("Port must be an integer!");
                             Application.Quit(1);
                         }
-
                         break;
                     case "--client":
                     case "-c":

@@ -8,31 +8,18 @@
 namespace Simulator.Network.Client
 {
     using System;
+    using System.Collections;
     using System.Collections.Generic;
-    using System.Globalization;
-    using System.IO;
-    using System.Linq;
     using System.Net;
     using System.Text;
-    using System.Threading;
     using Core.Configs;
     using Core.Connection;
     using Core.Messaging;
     using Core.Messaging.Data;
-    using Database;
-    using global::Web;
-    using ICSharpCode.SharpZipLib.Zip;
     using LiteNetLib.Utils;
-    using PetaPoco;
     using Shared;
-    using Simulator.Bridge;
     using Simulator.Network.Core;
-
     using UnityEngine;
-    using UnityEngine.SceneManagement;
-    using Web;
-    using Web.Modules;
-    using YamlDotNet.Serialization;
 
     /// <summary>
     /// Simulation network client manager
@@ -75,17 +62,12 @@ namespace Simulator.Network.Client
         /// <summary>
         /// Connection manager for this server simulation
         /// </summary>
-        public LiteNetLibClient ConnectionManager { get; } = new LiteNetLibClient();
+        public LiteNetLibClient Connection { get; } = new LiteNetLibClient();
 
         /// <summary>
         /// Cached connection manager to the master peer
         /// </summary>
         private IPeerManager MasterPeer { get; set; }
-        
-        /// <summary>
-        /// Cached current load command, validates if download operation has been overriden
-        /// </summary>
-        private Commands.Load CurrentLoadCommand { get; set; }
 
         /// <summary>
         /// Root of the mocked objects
@@ -97,7 +79,7 @@ namespace Simulator.Network.Client
         /// </summary>
         public ClientManager()
         {
-            MessagesManager = new MessagesManager(ConnectionManager);
+            MessagesManager = new MessagesManager(Connection);
         }
 
         /// <summary>
@@ -105,9 +87,6 @@ namespace Simulator.Network.Client
         /// </summary>
         private void Awake()
         {
-            PacketsProcessor.RegisterNestedType(SerializationHelpers.SerializeLoadAgent,
-                SerializationHelpers.DeserializeLoadAgent);
-            PacketsProcessor.SubscribeReusable<Commands.Load>(OnLoadCommand);
             PacketsProcessor.SubscribeReusable<Commands.Run>(OnRunCommand);
             PacketsProcessor.SubscribeReusable<Commands.Stop>(OnStopCommand);
             PacketsProcessor.SubscribeReusable<Commands.EnvironmentState>(OnEnvironmentStateCommand);
@@ -121,7 +100,7 @@ namespace Simulator.Network.Client
         /// </summary>
         private void LateUpdate()
         {
-            ConnectionManager.PoolEvents();
+            Connection.PoolEvents();
         }
 
         /// <summary>
@@ -142,8 +121,13 @@ namespace Simulator.Network.Client
             StopConnection();
         }
 
+        /// <summary>
+        /// Sets collisions between simulation objects
+        /// </summary>
+        /// <param name="collision">Should the collision be enabled</param>
         private void SetCollisionBetweenSimulationObjects(bool collision)
         {
+            Log.Info($"{GetType().Name} overrides the collision matrix between layers.");
             var agentLayer = LayerMask.NameToLayer("Agent");
             var npcLayer = LayerMask.NameToLayer("NPC");
             var pedestrianLayer = LayerMask.NameToLayer("Pedestrian");
@@ -170,11 +154,12 @@ namespace Simulator.Network.Client
         /// Initializes the simulation, adds <see cref="ClientObjectsRoot"/> component to the root game object
         /// </summary>
         /// <param name="rootGameObject">Root game object where new component will be added</param>
-        public void InitializeSimulation(GameObject rootGameObject)
+        public void InitializeSimulationScene(GameObject rootGameObject)
         {
             objectsRoot = rootGameObject.AddComponent<ClientObjectsRoot>();
             ObjectsRoot.SetMessagesManager(MessagesManager);
             ObjectsRoot.SetSettings(settings);
+            Log.Info($"{GetType().Name} initialized the simulation.");
         }
 
         /// <summary>
@@ -185,9 +170,10 @@ namespace Simulator.Network.Client
             if (settings == null)
                 throw new NullReferenceException("Set network settings before starting the connection.");
             MessagesManager.RegisterObject(this);
-            ConnectionManager.Start(settings.ConnectionPort);
-            ConnectionManager.PeerConnected += OnPeerConnected;
-            ConnectionManager.PeerDisconnected += OnPeerDisconnected;
+            Connection.Start(settings.ConnectionPort, settings.Timeout);
+            Connection.PeerConnected += OnPeerConnected;
+            Connection.PeerDisconnected += OnPeerDisconnected;
+            Log.Info($"{GetType().Name} started the connection manager.");
         }
 
         /// <summary>
@@ -195,11 +181,14 @@ namespace Simulator.Network.Client
         /// </summary>
         public void StopConnection()
         {
+            if (State == SimulationState.Initial)
+                return;
             State = SimulationState.Initial;
-            ConnectionManager.PeerConnected -= OnPeerConnected;
-            ConnectionManager.PeerDisconnected -= OnPeerDisconnected;
-            ConnectionManager.Stop();
+            Connection.PeerConnected -= OnPeerConnected;
+            Connection.PeerDisconnected -= OnPeerDisconnected;
+            Connection.Stop();
             MessagesManager.UnregisterObject(this);
+            Log.Info($"{GetType().Name} stopped the connection manager.");
         }
 
         /// <summary>
@@ -208,26 +197,14 @@ namespace Simulator.Network.Client
         /// <param name="peer">Peer that has connected</param>
         public void OnPeerConnected(IPeerManager peer)
         {
-            Debug.Assert(State == SimulationState.Initial);
+            Debug.Assert(State == SimulationState.Connecting);
             MasterPeer = peer;
 
-            Log.Info($"Master {peer.PeerEndPoint} connected.");
+            Log.Info($"Peer {peer.PeerEndPoint} connected.");
 
-            var info = new Commands.Info()
-            {
-                Version = "todo",
-                UnityVersion = Application.unityVersion,
-                OperatingSystem = SystemInfo.operatingSystemFamily.ToString(),
-            };
             State = SimulationState.Connected;
-            if (Loader.Instance.LoaderUI!=null)
-                Loader.Instance.LoaderUI.SetLoaderUIState(LoaderUI.LoaderUIStateType.PROGRESS);
-            var infoData = PacketsProcessor.Write(info);
-            var message = MessagesPool.Instance.GetMessage(infoData.Length);
-            message.AddressKey = Key;
-            message.Content.PushBytes(infoData);
-            message.Type = DistributedMessageType.ReliableOrdered;
-            UnicastMessage(peer.PeerEndPoint, message);
+            if (Loader.Instance.Network.IsSimulationReady)
+                SendReadyCommand();
         }
 
         /// <summary>
@@ -236,9 +213,11 @@ namespace Simulator.Network.Client
         /// <param name="peer">Peer that has disconnected</param>
         public void OnPeerDisconnected(IPeerManager peer)
         {
+            if (peer != MasterPeer)
+                return;
             MasterPeer = null;
-            OnStopCommand(new Commands.Stop());
-            MessagesManager.RevokeIdentifiers();
+            // OnStopCommand(new Commands.Stop());
+            // MessagesManager.RevokeIdentifiers();
             Log.Info($"Peer {peer.PeerEndPoint} disconnected.");
         }
 
@@ -267,107 +246,81 @@ namespace Simulator.Network.Client
         }
 
         /// <summary>
-        /// Method invoked when manager receives load command
+        /// Tries to connect to any master ip address
         /// </summary>
-        /// <param name="load">Received load command</param>
-        private void OnLoadCommand(Commands.Load load)
+        public void TryConnectToMaster()
         {
-            Debug.Assert(State == SimulationState.Connected);
-            CurrentLoadCommand = load;
-            State = SimulationState.Loading;
-
-            Log.Info("Preparing simulation");
-
-            try
+            State = SimulationState.Connecting;
+            var masterEndPoints = Loader.Instance.Network.MasterAddresses;
+            var localEndPoints = Loader.Instance.Network.LocalAddresses;
+            var identifier = Loader.Instance.Network.LocalIdentifier;
+            foreach (var masterEndPoint in masterEndPoints)
             {
-                //Check if downloading is already being processed, if true this may be a quick rerun of the simulation
-                if (processedDownloads.Contains(load.MapUrl))
+                //Check if client is already connected
+                if (MasterPeer != null)
                     return;
-                MapModel map;
-                using (var db = DatabaseManager.Open())
-                {
-                    var sql = Sql.Builder.Where("name = @0", load.MapName);
-                    map = db.SingleOrDefault<MapModel>(sql);
-                }
-
-                if (map == null)
-                {
-                    Log.Info($"Downloading {load.MapName} from {load.MapUrl}");
-
-                    map = new MapModel()
-                    {
-                        Name = load.MapName,
-                        Url = load.MapUrl,
-                        LocalPath = WebUtilities.GenerateLocalPath("Maps"),
-                    };
-
-                    using (var db = DatabaseManager.Open())
-                    {
-                        db.Insert(map);
-                    }
-
-                    processedDownloads.Add(map.Name);
-                    DownloadManager.AddDownloadToQueue(new Uri(map.Url), map.LocalPath, null, (success, ex) =>
-                    {
-                        processedDownloads.Remove(map.Name);
-                        //Check if downloaded map is still valid in current load command
-                        if (CurrentLoadCommand.MapName != map.Name)
-                            return;
-                        if (ex != null)
-                        {
-                            map.Error = ex.Message;
-                            using (var db = DatabaseManager.Open())
-                            {
-                                db.Update(map);
-                            }
-
-                            Debug.LogException(ex);
-                        }
-
-                        if (success)
-                        {
-                            LoadMapBundle(load, map.LocalPath);
-                        }
-                        else
-                        {
-                            var err = new Commands.LoadResult()
-                            {
-                                Success = false,
-                                ErrorMessage = ex.ToString(),
-                            };
-                            var errData = PacketsProcessor.Write(err);
-                            var message = MessagesPool.Instance.GetMessage(errData.Length);
-                            message.AddressKey = Key;
-                            message.Content.PushBytes(errData);
-                            message.Type = DistributedMessageType.ReliableOrdered;
-                            UnicastMessage(MasterPeer.PeerEndPoint, message);
-                        }
-                    });
-                }
-                else
-                {
-                    Log.Info($"Map {load.MapName} exists");
-                    LoadMapBundle(load, map.LocalPath);
-                }
+                if (!localEndPoints.Contains(masterEndPoint))
+                    Connection.Connect(masterEndPoint, identifier);
             }
-            catch (Exception ex)
+
+            StartCoroutine(CheckInitialTimeout());
+        }
+
+        /// <summary>
+        /// Coroutine checking if this client connected to a master after timeout time
+        /// </summary>
+        /// <returns></returns>
+        private IEnumerator CheckInitialTimeout()
+        {
+            yield return new WaitForSecondsRealtime(settings.Timeout / 1000.0f);
+            if (MasterPeer != null) yield break;
+
+            //Could not connect to any master address, log error and stop the simulation
+            var localAddressesSb = new StringBuilder();
+            for (var i = 0; i < Loader.Instance.Network.LocalAddresses.Count; i++)
             {
-                Debug.LogException(ex);
-
-                var err = new Commands.LoadResult()
-                {
-                    Success = false,
-                    ErrorMessage = ex.ToString(),
-                };
-                var errData = PacketsProcessor.Write(err);
-                var message = MessagesPool.Instance.GetMessage(errData.Length);
-                message.AddressKey = Key;
-                message.Content.PushBytes(errData);
-                message.Type = DistributedMessageType.ReliableOrdered;
-                UnicastMessage(MasterPeer.PeerEndPoint, message);
-
-                Loader.ResetLoaderScene();
+                var ipEndPoint = Loader.Instance.Network.LocalAddresses[i];
+                localAddressesSb.Append(ipEndPoint);
+                if (i+1 < Loader.Instance.Network.LocalAddresses.Count)
+                    localAddressesSb.Append(", ");
             }
+            var masterAddressesSb = new StringBuilder();
+            for (var i = 0; i < Loader.Instance.Network.MasterAddresses.Count; i++)
+            {
+                var ipEndPoint = Loader.Instance.Network.MasterAddresses[i];
+                masterAddressesSb.Append(ipEndPoint);
+                if (i+1 < Loader.Instance.Network.MasterAddresses.Count)
+                    masterAddressesSb.Append(", ");
+            }
+
+            Log.Error(
+                $"{GetType().Name} could not establish the connection to the master. This client ip addresses: '{localAddressesSb}', master ip addresses: '{masterAddressesSb}'.");
+
+            var simulation = Loader.Instance.Network.CurrentSimulation;
+            if (simulation != null)
+            {
+                ConnectionManager.instance.UpdateStatus("Stopping", simulation.Id);
+            }
+            else
+            {
+                Debug.Log("Cannot send stopping status without simulation");
+            }
+        }
+
+        /// <summary>
+        /// Sends ready command to the master
+        /// </summary>
+        public void SendReadyCommand()
+        {
+            if (State != SimulationState.Connected) return;
+            State = SimulationState.Ready;
+            var stopData = PacketsProcessor.Write(new Commands.Ready() { });
+            var message = MessagesPool.Instance.GetMessage(stopData.Length);
+            message.AddressKey = Key;
+            message.Content.PushBytes(stopData);
+            message.Type = DistributedMessageType.ReliableOrdered;
+            BroadcastMessage(message);
+            Log.Info($"{GetType().Name} is ready and has sent ready command to the master..");
         }
 
         /// <summary>
@@ -377,9 +330,9 @@ namespace Simulator.Network.Client
         private void OnRunCommand(Commands.Run run)
         {
             Debug.Assert(State == SimulationState.Ready);
-            if (Loader.Instance.LoaderUI != null) Loader.Instance.LoaderUI.DisableUI();
-            SceneManager.UnloadSceneAsync(Loader.Instance.LoaderScene);
+            Loader.StartAsync(Loader.Instance.Network.CurrentSimulation);
             State = SimulationState.Running;
+            Log.Info($"{GetType().Name} received run command and started the simulation.");
         }
 
         /// <summary>
@@ -392,6 +345,7 @@ namespace Simulator.Network.Client
                 Loader.StopAsync();
 
             State = SimulationState.Initial;
+            Log.Info($"{GetType().Name} received stop command and stops the simulation.");
         }
 
         /// <summary>
@@ -408,6 +362,7 @@ namespace Simulator.Network.Client
             ui.WetSlider.value = state.Wet;
             ui.CloudSlider.value = state.Cloud;
             ui.TimeOfDaySlider.value = state.TimeOfDay;
+            Log.Info($"{GetType().Name} received environment state update.");
         }
 
         /// <summary>
@@ -416,402 +371,12 @@ namespace Simulator.Network.Client
         /// <param name="ping">Ping command</param>
         private void OnPingCommand(Commands.Ping ping)
         {
-            var stopData = PacketsProcessor.Write(new Commands.Pong() { Id = ping.Id});
-            var message = MessagesPool.Instance.GetMessage(stopData.Length);
+            var pongData = PacketsProcessor.Write(new Commands.Pong() {Id = ping.Id});
+            var message = MessagesPool.Instance.GetMessage(pongData.Length);
             message.AddressKey = Key;
-            message.Content.PushBytes(stopData);
+            message.Content.PushBytes(pongData);
             message.Type = DistributedMessageType.Unreliable;
             BroadcastMessage(message);
-        }
-
-        /// <summary>
-        /// Download required for the simulation vehicle bundles from the server
-        /// </summary>
-        /// <param name="load">Load command from the server</param>
-        /// <param name="bundles">Paths where bundles will be saved</param>
-        /// <param name="finished">Callback invoked when downloading is completed</param>
-        private void DownloadVehicleBundles(Commands.Load load, List<string> bundles, Action finished)
-        {
-            try
-            {
-                int count = 0;
-
-                var agents = load.Agents;
-                var agentsToDownload = load.Agents.Length;
-                if (agentsToDownload == 0)
-                {
-                    finished();
-                    return;
-                }
-
-                for (int i = 0; i < agentsToDownload; i++)
-                {
-                    //Check if downloading is already being processed, if true this may be a quick rerun of the simulation
-                    if (processedDownloads.Contains(agents[i].Name))
-                    {
-                        Interlocked.Increment(ref count);
-                        continue;
-                    }
-                    VehicleModel vehicleModel;
-                    using (var db = DatabaseManager.Open())
-                    {
-                        var sql = Sql.Builder.Where("name = @0", agents[i].Name);
-                        vehicleModel = db.SingleOrDefault<VehicleModel>(sql);
-                    }
-
-                    if (vehicleModel == null)
-                    {
-                        Log.Info($"Downloading {agents[i].Name} from {agents[i].Url}");
-
-                        vehicleModel = new VehicleModel()
-                        {
-                            Name = agents[i].Name,
-                            Url = agents[i].Url,
-                            BridgeType = agents[i].Bridge,
-                            LocalPath = WebUtilities.GenerateLocalPath("Vehicles"),
-                            Sensors = agents[i].Sensors,
-                        };
-                        bundles.Add(vehicleModel.LocalPath);
-
-                        processedDownloads.Add(vehicleModel.Name);
-                        DownloadManager.AddDownloadToQueue(new Uri(vehicleModel.Url), vehicleModel.LocalPath, null,
-                            (success, ex) =>
-                            {
-                                //Check if downloaded vehicle model is still valid in current load command
-                                if (CurrentLoadCommand.Agents.All(loadAgent => loadAgent.Name != vehicleModel.Name))
-                                    return;
-                                processedDownloads.Remove(vehicleModel.Name);
-                                if (ex != null)
-                                {
-                                    var err = new Commands.LoadResult()
-                                    {
-                                        Success = false,
-                                        ErrorMessage = ex.ToString(),
-                                    };
-                                    var errData = PacketsProcessor.Write(err);
-                                    var message = MessagesPool.Instance.GetMessage(errData.Length);
-                                    message.AddressKey = Key;
-                                    message.Content.PushBytes(errData);
-                                    message.Type = DistributedMessageType.ReliableOrdered;
-                                    UnicastMessage(MasterPeer.PeerEndPoint, message);
-                                    return;
-                                }
-
-                                using (var db = DatabaseManager.Open())
-                                {
-                                    db.Insert(vehicleModel);
-                                }
-
-                                if (Interlocked.Increment(ref count) == agentsToDownload)
-                                {
-                                    finished();
-                                }
-                            }
-                        );
-                    }
-                    else
-                    {
-                        Log.Info($"Vehicle {agents[i].Name} exists");
-
-                        bundles.Add(vehicleModel.LocalPath);
-                        if (Interlocked.Increment(ref count) == agentsToDownload)
-                        {
-                            finished();
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogException(ex);
-
-                var err = new Commands.LoadResult()
-                {
-                    Success = false,
-                    ErrorMessage = ex.ToString(),
-                };
-                var errData = PacketsProcessor.Write(err);
-                var message = MessagesPool.Instance.GetMessage(errData.Length);
-                message.AddressKey = Key;
-                message.Content.PushBytes(errData);
-                message.Type = DistributedMessageType.ReliableOrdered;
-                UnicastMessage(MasterPeer.PeerEndPoint, message);
-
-                Loader.ResetLoaderScene();
-            }
-        }
-
-        /// <summary>
-        /// Load vehicle bundles and return vehicles prefabs
-        /// </summary>
-        /// <param name="bundles">Bundles required to be loaded</param>
-        /// <returns>Loaded vehicles prefabs</returns>
-        /// <exception cref="Exception">Could not load vehicle from the asset bundle</exception>
-        private GameObject[] LoadVehicleBundles(List<string> bundles)
-        {
-            return bundles.Select(bundle =>
-            {
-                using (ZipFile zip = new ZipFile(bundle))
-                {
-                    Manifest manifest;
-                    ZipEntry entry = zip.GetEntry("manifest");
-                    using (var ms = zip.GetInputStream(entry))
-                    {
-                        int streamSize = (int) entry.Size;
-                        byte[] buffer = new byte[streamSize];
-                        streamSize = ms.Read(buffer, 0, streamSize);
-                        manifest = new Deserializer().Deserialize<Manifest>(
-                            Encoding.UTF8.GetString(buffer, 0, streamSize));
-                    }
-
-                    AssetBundle textureBundle = null;
-
-                    if (zip.FindEntry($"{manifest.assetGuid}_vehicle_textures", true) != -1)
-                    {
-                        var texStream = zip.GetInputStream(zip.GetEntry($"{manifest.assetGuid}_vehicle_textures"));
-                        textureBundle = AssetBundle.LoadFromStream(texStream, 0, 1 << 20);
-                    }
-
-                    string platform = SystemInfo.operatingSystemFamily == OperatingSystemFamily.Windows
-                        ? "windows"
-                        : "linux";
-                    var mapStream = zip.GetInputStream(zip.GetEntry($"{manifest.assetGuid}_vehicle_main_{platform}"));
-                    var vehicleBundle = AssetBundle.LoadFromStream(mapStream, 0, 1 << 20);
-
-                    if (vehicleBundle == null)
-                    {
-                        throw new Exception($"Failed to load '{bundle}' vehicle asset bundle");
-                    }
-
-                    try
-                    {
-                        var vehicleAssets = vehicleBundle.GetAllAssetNames();
-                        if (vehicleAssets.Length != 1)
-                        {
-                            throw new Exception($"Unsupported '{bundle}' vehicle asset bundle, only 1 asset expected");
-                        }
-
-                        textureBundle?.LoadAllAssets();
-
-                        return vehicleBundle.LoadAsset<GameObject>(vehicleAssets[0]);
-                    }
-                    finally
-                    {
-                        textureBundle?.Unload(false);
-                        vehicleBundle.Unload(false);
-                    }
-                }
-            }).ToArray();
-        }
-
-        /// <summary>
-        /// Creates simulation model corresponding to loaded simulation config
-        /// </summary>
-        /// <param name="config">Loaded simulation config from the master</param>
-        /// <returns>Simulation model corresponding to loaded simulation config</returns>
-        private SimulationModel CreateSimulationModel(SimulationConfig config)
-        {
-            //TODO Remove method and modify the Loader.StopAsync()
-            var model = new SimulationModel();
-            model.Cloudiness = config.Cloudiness;
-            //model.Cluster
-            //model.Error
-            model.Fog = config.Fog;
-            model.Headless = config.Headless;
-            //model.Id
-            model.Interactive = false;
-            //model.Map
-            model.Name = config.Name;
-            //model.Owner
-            model.Rain = config.Rain;
-            model.Seed = config.Seed;
-            model.Status = "Starting";
-            //model.Vehicles
-            model.Wetness = config.Wetness;
-            model.ApiOnly = config.ApiOnly;
-            //model.UseBicyclists
-            model.UsePedestrians = false;
-            model.UseTraffic = false;
-            model.TimeOfDay = config.TimeOfDay;
-            return model;
-        }
-
-        /// <summary>
-        /// Download required for the simulation vehicle bundles from the server
-        /// </summary>
-        /// <param name="load">Load command from the server</param>
-        /// <param name="mapBundlePath">Path where the map bundle will be saved</param>
-        private void LoadMapBundle(Commands.Load load, string mapBundlePath)
-        {
-            var vehicleBundles = new List<string>();
-            DownloadVehicleBundles(load, vehicleBundles, () =>
-            {
-                if (MasterPeer == null)
-                {
-                    Log.Warning("Master peer has disconnected while loading the simulation scene.");
-                    Loader.ResetLoaderScene();
-                    return;
-                }
-                var zip = new ZipFile(mapBundlePath);
-                {
-                    string manfile;
-                    ZipEntry entry = zip.GetEntry("manifest");
-                    using (var ms = zip.GetInputStream(entry))
-                    {
-                        int streamSize = (int) entry.Size;
-                        byte[] buffer = new byte[streamSize];
-                        streamSize = ms.Read(buffer, 0, streamSize);
-                        manfile = Encoding.UTF8.GetString(buffer);
-                    }
-
-                    Manifest manifest = new Deserializer().Deserialize<Manifest>(manfile);
-
-                    AssetBundle textureBundle = null;
-
-                    if (zip.FindEntry(($"{manifest.assetGuid}_environment_textures"), false) != -1)
-                    {
-                        var texStream = zip.GetInputStream(zip.GetEntry($"{manifest.assetGuid}_environment_textures"));
-                        textureBundle = AssetBundle.LoadFromStream(texStream, 0, 1 << 20);
-                    }
-
-                    string platform = SystemInfo.operatingSystemFamily == OperatingSystemFamily.Windows
-                        ? "windows"
-                        : "linux";
-                    var mapStream =
-                        zip.GetInputStream(zip.GetEntry($"{manifest.assetGuid}_environment_main_{platform}"));
-                    var mapBundle = AssetBundle.LoadFromStream(mapStream, 0, 1 << 20);
-
-                    if (mapBundle == null)
-                    {
-                        throw new Exception($"Failed to load environment from '{load.MapName}' asset bundle");
-                    }
-
-                    textureBundle?.LoadAllAssets();
-
-                    var scenes = mapBundle.GetAllScenePaths();
-                    if (scenes.Length != 1)
-                    {
-                        throw new Exception(
-                            $"Unsupported environment in '{load.MapName}' asset bundle, only 1 scene expected");
-                    }
-
-                    var sceneName = Path.GetFileNameWithoutExtension(scenes[0]);
-
-                    var loader = SceneManager.LoadSceneAsync(sceneName, LoadSceneMode.Additive);
-                    loader.completed += op =>
-                    {
-                        if (op.isDone)
-                        {
-                            SceneManager.SetActiveScene(SceneManager.GetSceneByName(sceneName));
-                            textureBundle?.Unload(false);
-                            mapBundle.Unload(false);
-                            zip.Close();
-
-                            try
-                            {
-                                var prefabs = LoadVehicleBundles(vehicleBundles);
-
-                                Loader.Instance.SimConfig = new SimulationConfig()
-                                {
-                                    Name = load.Name,
-                                    ApiOnly = load.ApiOnly,
-                                    Headless = load.Headless,
-                                    Interactive = load.Interactive,
-                                    TimeOfDay = DateTime.ParseExact(load.TimeOfDay, "o", CultureInfo.InvariantCulture),
-                                    Rain = load.Rain,
-                                    Fog = load.Fog,
-                                    Wetness = load.Wetness,
-                                    Cloudiness = load.Cloudiness,
-                                    UseTraffic = load.UseTraffic,
-                                    UsePedestrians = load.UsePedestrians,
-                                    Agents = load.Agents.Zip(prefabs, (agent, prefab) =>
-                                    {
-                                        var config = new AgentConfig()
-                                        {
-                                            Name = agent.Name,
-                                            Prefab = prefab,
-                                            Connection = agent.Connection,
-                                            Sensors = agent.Sensors,
-                                        };
-
-                                        if (!string.IsNullOrEmpty(agent.Bridge))
-                                        {
-                                            config.Bridge = BridgePlugins.Get(agent.Bridge);
-                                            if (config.Bridge == null)
-                                            {
-                                                throw new Exception($"Bridge {agent.Bridge} not found");
-                                            }
-                                        }
-
-                                        return config;
-                                    }).ToArray(),
-                                };
-
-                                Loader.Instance.CurrentSimulation = CreateSimulationModel(Loader.Instance.SimConfig);
-                                Loader.Instance.CurrentSimulation.Status = "Running";
-                                if (Loader.Instance.SimConfig.ApiOnly)
-                                {
-                                    var api = Instantiate(Loader.Instance.ApiManagerPrefab);
-                                    api.name = "ApiManager";
-                                }
-                                
-                                var simulatorManager = Loader.CreateSimulatorManager();
-                                if (load.UseSeed)
-                                    simulatorManager.Init(load.Seed);
-                                else
-                                    simulatorManager.Init();
-                                InitializeSimulation(simulatorManager.gameObject);
-                                
-                                // Notify WebUI simulation is running
-                                NotificationManager.SendNotification("simulation",
-                                    SimulationResponse.Create(Loader.Instance.CurrentSimulation),
-                                    Loader.Instance.CurrentSimulation.Owner);
-
-                                Log.Info($"Client ready to start");
-
-                                var result = new Commands.LoadResult()
-                                {
-                                    Success = true,
-                                };
-                                
-                                Loader.Instance.LoaderUI.SetLoaderUIState(LoaderUI.LoaderUIStateType.READY);
-                                if (MasterPeer == null)
-                                {
-                                    Log.Warning("Master peer has disconnected while loading the simulation scene.");
-                                    Loader.ResetLoaderScene();
-                                    return;
-                                }
-                                var resultData = PacketsProcessor.Write(result);
-                                var message = MessagesPool.Instance.GetMessage(resultData.Length);
-                                message.AddressKey = Key;
-                                message.Content.PushBytes(resultData);
-                                message.Type = DistributedMessageType.ReliableOrdered;
-                                UnicastMessage(MasterPeer.PeerEndPoint, message);
-
-                                State = SimulationState.Ready;
-                            }
-                            catch (Exception ex)
-                            {
-                                Debug.LogException(ex);
-
-                                var err = new Commands.LoadResult()
-                                {
-                                    Success = false,
-                                    ErrorMessage = ex.ToString(),
-                                };
-                                var errData = PacketsProcessor.Write(err);
-                                var message = MessagesPool.Instance.GetMessage(errData.Length);
-                                message.AddressKey = Key;
-                                message.Content.PushBytes(errData);
-                                message.Type = DistributedMessageType.ReliableOrdered;
-                                UnicastMessage(MasterPeer.PeerEndPoint, message);
-
-                                Loader.ResetLoaderScene();
-                            }
-                        }
-                    };
-                }
-            });
         }
     }
 }

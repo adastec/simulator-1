@@ -121,8 +121,8 @@ namespace Simulator.Bridge.Ros
             RegPublisher<ImuData, Ros.Imu>(plugin, Conversions.ConvertFrom);
             RegPublisher<Detected3DObjectData, Lgsvl.Detection3DArray>(plugin, Conversions.ConvertFrom);
             RegPublisher<SignalDataArray, Lgsvl.SignalArray>(plugin, Conversions.ConvertFrom);
-            
-            RegSubscriber<VehicleControlData, Autoware.ControlCommandStamped>(plugin, Conversions.ConvertTo);
+
+            RegSubscriber<VehicleControlData, Autoware.VehicleCmd>(plugin, Conversions.ConvertTo);
         }
     }
 

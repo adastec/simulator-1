@@ -60,6 +60,10 @@ public class UIManager : MonoBehaviour
     public Button ResetButton;
     public Button DisableAllButton;
     public Button BridgeButton;
+    public Button StopSimButton;
+    public GameObject StopSimPanel;
+    public Button StopSimYesButton;
+    public Button StopSimNoButton;
     public Text PlayText;
     public Text PauseText;
     public Transform InfoContent;
@@ -89,6 +93,8 @@ public class UIManager : MonoBehaviour
     public Text FogValueText;
     public Slider CloudSlider;
     public Text CloudValueText;
+    public Slider DamageSlider;
+    public Text DamageValueText;
     public Toggle NPCToggle;
     public Toggle PedestrianToggle;
 
@@ -144,13 +150,11 @@ public class UIManager : MonoBehaviour
 
     private void Start()
     {
+        StopSimPanel.SetActive(false);
         PauseButton.gameObject.SetActive(false);
         EnvironmentButton.gameObject.SetActive(false);
         MenuHolder.SetActive(false);
-#if UNITY_EDITOR //ADASTEC
-        EnvironmentButton.gameObject.SetActive(true);
-        MenuHolder.SetActive(true);
-#endif
+
         var config = Loader.Instance?.SimConfig;
         if (config != null)
         {
@@ -185,6 +189,8 @@ public class UIManager : MonoBehaviour
                 WetValueText.text = config.Wetness.ToString("F2");
                 CloudSlider.value = config.Cloudiness;
                 CloudValueText.text = config.Cloudiness.ToString("F2");
+                DamageSlider.value = config.Damage;
+                DamageValueText.text = config.Damage.ToString("F2");
 
                 // set toggles
                 NPCToggle.isOn = config.UseTraffic;
@@ -211,7 +217,9 @@ public class UIManager : MonoBehaviour
         BridgeButton.onClick.AddListener(BridgeButtonOnClick);
         AgentDropdown.onValueChanged.AddListener(OnAgentSelected);
         CameraButton.onClick.AddListener(CameraButtonOnClick);
-
+        StopSimButton.onClick.AddListener(StopSimButtonOnClick);
+        StopSimYesButton.onClick.AddListener(StopSimYesButtonOnClick);
+        StopSimNoButton.onClick.AddListener(StopSimNoButtonOnClick);
         SetCameraButtonState();
     }
 
@@ -226,7 +234,7 @@ public class UIManager : MonoBehaviour
         {
             if (!TimeOfDayFreezeToggle.isOn)
             {
-                TimeOfDaySlider.value = SimulatorManager.Instance.EnvironmentEffectsManager.currentTimeOfDay;
+                TimeOfDaySlider.value = SimulatorManager.Instance.EnvironmentEffectsManager.CurrentTimeOfDay;
             }
         }
 
@@ -264,12 +272,15 @@ public class UIManager : MonoBehaviour
         AgentDropdown.onValueChanged.RemoveListener(OnAgentSelected);
         CameraButton.onClick.RemoveListener(CameraButtonOnClick);
         CloseButton.onClick.RemoveListener(CloseButtonOnClick);
+        StopSimButton.onClick.RemoveListener(StopSimButtonOnClick);
+        StopSimYesButton.onClick.RemoveListener(StopSimYesButtonOnClick);
+        StopSimNoButton.onClick.RemoveListener(StopSimNoButtonOnClick);
+
         if (Loader.Instance != null && Loader.Instance.SimConfig != null) // TODO fix for Editor needs SimConfig
         {
             if (Loader.Instance.SimConfig.Interactive)
                 SimulatorManager.Instance.TimeManager.TimeScaleSemaphore.LocksCountChanged -= UpdatePauseButton;
         }
-            
     }
 
     public void Reset() //api
@@ -548,6 +559,7 @@ public class UIManager : MonoBehaviour
 
     private void SetCurrentPanel()
     {
+        StopSimPanel.SetActive(false);
         InfoPanel.SetActive(InfoPanel.activeInHierarchy ? false : currentPanelType == PanelType.Info);
         ControlsPanel.SetActive(ControlsPanel.activeInHierarchy ? false : currentPanelType == PanelType.Controls);
         EnvironmentPanel.SetActive(EnvironmentPanel.activeInHierarchy ? false : currentPanelType == PanelType.Environment);
@@ -557,6 +569,7 @@ public class UIManager : MonoBehaviour
 
     public void MenuButtonOnClick()
     {
+        StopSimPanel.SetActive(false);
         MenuHolder.SetActive(!MenuHolder.activeInHierarchy);
     }
 
@@ -565,6 +578,23 @@ public class UIManager : MonoBehaviour
         currentPanelType = PanelType.None;
         SetCurrentPanel();
         MenuHolder.SetActive(false);
+        StopSimPanel.SetActive(false);
+    }
+
+    private void StopSimButtonOnClick()
+    {
+        StopSimPanel.SetActive(!StopSimPanel.activeInHierarchy);
+    }
+
+    private void StopSimYesButtonOnClick()
+    {
+        StopSimPanel.SetActive(false);
+        Loader.StopAsync();
+    }
+
+    private void StopSimNoButtonOnClick()
+    {
+        StopSimPanel.SetActive(false);
     }
 
     private void StopButtonOnClick()
@@ -574,6 +604,7 @@ public class UIManager : MonoBehaviour
 
     public void PauseButtonOnClick()
     {
+        StopSimPanel.SetActive(false);
         var interactive = Loader.Instance?.SimConfig?.Interactive;
         if (interactive == null || interactive == false)
         {
@@ -588,6 +619,7 @@ public class UIManager : MonoBehaviour
 
     private void PauseSimulation()
     {
+        StopSimPanel.SetActive(false);
         if (paused)
             return;
         var timeManager = SimulatorManager.Instance.TimeManager;
@@ -598,6 +630,7 @@ public class UIManager : MonoBehaviour
 
     private void ContinueSimulation()
     {
+        StopSimPanel.SetActive(false);
         if (!paused)
             return;
         var timeManager = SimulatorManager.Instance.TimeManager;
@@ -646,16 +679,18 @@ public class UIManager : MonoBehaviour
     {
         if (SimulatorManager.Instance == null) return;
 
-        TimeOfDaySlider.value = SimulatorManager.Instance.EnvironmentEffectsManager.currentTimeOfDay;
-        TimeOfDayValueText.text = SimulatorManager.Instance.EnvironmentEffectsManager.currentTimeOfDay.ToString("F2");
-        RainSlider.value = SimulatorManager.Instance.EnvironmentEffectsManager.rain;
-        RainValueText.text = SimulatorManager.Instance.EnvironmentEffectsManager.rain.ToString("F2");
-        FogSlider.value = SimulatorManager.Instance.EnvironmentEffectsManager.fog;
-        FogValueText.text = SimulatorManager.Instance.EnvironmentEffectsManager.fog.ToString("F2");
-        WetSlider.value = SimulatorManager.Instance.EnvironmentEffectsManager.wet;
-        WetValueText.text = SimulatorManager.Instance.EnvironmentEffectsManager.wet.ToString("F2");
-        CloudSlider.value = SimulatorManager.Instance.EnvironmentEffectsManager.cloud;
-        CloudValueText.text = SimulatorManager.Instance.EnvironmentEffectsManager.cloud.ToString("F2");
+        TimeOfDaySlider.value = SimulatorManager.Instance.EnvironmentEffectsManager.CurrentTimeOfDay;
+        TimeOfDayValueText.text = SimulatorManager.Instance.EnvironmentEffectsManager.CurrentTimeOfDay.ToString("F2");
+        RainSlider.value = SimulatorManager.Instance.EnvironmentEffectsManager.Rain;
+        RainValueText.text = SimulatorManager.Instance.EnvironmentEffectsManager.Rain.ToString("F2");
+        FogSlider.value = SimulatorManager.Instance.EnvironmentEffectsManager.Fog;
+        FogValueText.text = SimulatorManager.Instance.EnvironmentEffectsManager.Fog.ToString("F2");
+        WetSlider.value = SimulatorManager.Instance.EnvironmentEffectsManager.Wet;
+        WetValueText.text = SimulatorManager.Instance.EnvironmentEffectsManager.Wet.ToString("F2");
+        CloudSlider.value = SimulatorManager.Instance.EnvironmentEffectsManager.Cloud;
+        CloudValueText.text = SimulatorManager.Instance.EnvironmentEffectsManager.Cloud.ToString("F2");
+        DamageSlider.value = SimulatorManager.Instance.EnvironmentEffectsManager.Damage;
+        DamageValueText.text = SimulatorManager.Instance.EnvironmentEffectsManager.Damage.ToString("F2");
         NPCToggle.isOn = SimulatorManager.Instance.NPCManager.NPCActive;
         PedestrianToggle.isOn = SimulatorManager.Instance.PedestrianManager.PedestriansActive;
 
@@ -678,42 +713,49 @@ public class UIManager : MonoBehaviour
     public void TimeOfDayOnValueChanged(float value)
     {
         if (SimulatorManager.Instance == null) return;
-        SimulatorManager.Instance.EnvironmentEffectsManager.currentTimeOfDay = value;
+        SimulatorManager.Instance.EnvironmentEffectsManager.CurrentTimeOfDay = value;
         TimeOfDayValueText.text = value.ToString("F2");
     }
 
     public void TimeOfDayFreezeOnValueChanged(bool value)
     {
         if (SimulatorManager.Instance == null) return;
-        SimulatorManager.Instance.EnvironmentEffectsManager.currentTimeOfDayCycle = value ? EnvironmentEffectsManager.TimeOfDayCycleTypes.Freeze : EnvironmentEffectsManager.TimeOfDayCycleTypes.Normal;
+        SimulatorManager.Instance.EnvironmentEffectsManager.CurrentTimeOfDayCycle = value ? EnvironmentEffectsManager.TimeOfDayCycleTypes.Freeze : EnvironmentEffectsManager.TimeOfDayCycleTypes.Normal;
     }
 
     public void RainOnValueChanged(float value)
     {
         if (SimulatorManager.Instance == null) return;
-        SimulatorManager.Instance.EnvironmentEffectsManager.rain = value;
+        SimulatorManager.Instance.EnvironmentEffectsManager.Rain = value;
         RainValueText.text = value.ToString("F2");
     }
 
     public void FogOnValueChanged(float value)
     {
         if (SimulatorManager.Instance == null) return;
-        SimulatorManager.Instance.EnvironmentEffectsManager.fog = value;
+        SimulatorManager.Instance.EnvironmentEffectsManager.Fog = value;
         FogValueText.text = value.ToString("F2");
     }
 
     public void WetOnValueChanged(float value)
     {
         if (SimulatorManager.Instance == null) return;
-        SimulatorManager.Instance.EnvironmentEffectsManager.wet = value;
+        SimulatorManager.Instance.EnvironmentEffectsManager.Wet = value;
         WetValueText.text = value.ToString("F2");
     }
 
     public void CloudOnValueChanged(float value)
     {
         if (SimulatorManager.Instance == null) return;
-        SimulatorManager.Instance.EnvironmentEffectsManager.cloud = value;
+        SimulatorManager.Instance.EnvironmentEffectsManager.Cloud = value;
         CloudValueText.text = value.ToString("F2");
+    }
+
+    public void DamageOnValueChanged(float value)
+    {
+        if (SimulatorManager.Instance == null) return;
+        SimulatorManager.Instance.EnvironmentEffectsManager.Damage = value;
+        DamageValueText.text = value.ToString("F2");
     }
 
     public void NPCOnValueChanged(bool value)

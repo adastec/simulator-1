@@ -5,7 +5,7 @@ pipeline {
   agent {
     node {
       label "unity3d-2019.3-vulkan"
-      customWorkspace "/home/jenkins/workspace/simulator-release-2019.3.15f1"
+      customWorkspace "/home/jenkins/workspace/simulator-cloud-release-2019.3.15f1"
     }
   }
 
@@ -13,6 +13,10 @@ pipeline {
     gitLabConnection("${GITLAB_HOST}")
     skipDefaultCheckout(true)
     timestamps()
+  }
+
+  parameters {
+    string(name: "CLOUD_URL", defaultValue: "${SIMULATOR_WISE_BETA_URL}", description: "")
   }
 
   environment {
@@ -28,8 +32,6 @@ pipeline {
     FORCE_REBUILD = "${FORCE_REBUILD}"
     SIMULATOR_ENVIRONMENTS = "${SIMULATOR_ENVIRONMENTS_RELEASE}"
     SIMULATOR_SENSORS = "${SIMULATOR_SENSORS_RELEASE}"
-    SIMULATOR_NPCS_REPOS = "${SIMULATOR_NPCS_REPOS_RELEASE}"
-    SIMULATOR_NPCS = "${SIMULATOR_NPCS_RELEASE}"
   }
 
   stages {
@@ -176,14 +178,6 @@ pipeline {
     }
 
     stage("Checkout NPCs") {
-      when {
-        not {
-            anyOf {
-                environment name: "SIMULATOR_NPCS_REPOS", value: ""
-                environment name: "SIMULATOR_NPCS", value: ""
-            }
-        }
-      }
       steps {
         script {
           def npcs = env.SIMULATOR_NPCS_REPOS.split(',')
@@ -218,16 +212,7 @@ pipeline {
             docker login -u ${DOCKER_USR} -p ${DOCKER_PSW} ${GITLAB_HOST}:4567
             docker-compose build build-simulator
             docker-compose push build-simulator
-            docker-compose pull build-webui
           """
-        }
-      }
-    }
-
-    stage("WebUI") {
-      steps {
-        dir("Jenkins") {
-          sh "UID=`id -u` docker-compose run --rm build-webui-p"
         }
       }
     }
@@ -257,30 +242,6 @@ pipeline {
         }
       }
     }
-
-    stage("Bundles") {
-      steps {
-        dir("Jenkins") {
-          script {
-            env.SIM_ENVIRONMENTS = sh(returnStdout: true, script: "./get-assets.sh ../Assets/External/Environments ${S3_DOWNLOAD_HOST} environment 0").trim()
-            env.SIM_VEHICLES = sh(returnStdout: true, script: "./get-assets.sh ../Assets/External/Vehicles ${S3_DOWNLOAD_HOST} vehicle 0").trim()
-          }
-          sh "UID=`id -u` docker-compose run --rm build-bundles"
-          sh "UID=`id -u` docker-compose run --rm upload-bundles | tee ../upload-bundles.log"
-          script {
-            env.SIM_ENVIRONMENTS = sh(returnStdout: true, script: "./get-assets.sh ../Assets/External/Environments ${S3_DOWNLOAD_HOST} environment 1").trim()
-            env.SIM_VEHICLES = sh(returnStdout: true, script: "./get-assets.sh ../Assets/External/Vehicles ${S3_DOWNLOAD_HOST} vehicle 1").trim()
-          }
-          sh "UID=`id -u` docker-compose run --rm save-bundle-links"
-        }
-      }
-
-      post {
-        success {
-          archiveArtifacts "*-bundles-${GIT_TAG}.html"
-        }
-      }
-    } // Bundles
 
     stage("Windows") {
 

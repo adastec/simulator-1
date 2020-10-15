@@ -12,7 +12,8 @@ using System.Threading.Tasks;
 using System.Collections.Concurrent;
 using UnityEngine;
 using System.Linq;
-
+using Simulator.Database.Services;
+using Simulator.Database;
 using Stopwatch = System.Diagnostics.Stopwatch;
 
 namespace Simulator.Web
@@ -73,16 +74,64 @@ namespace Simulator.Web
         static int currentProgress;
         static long nextUpdate;
         static bool cancelled;
+        static bool initialized = false;
 
-        public static void Init()
+        private static void Init()
         {
+            if(initialized) return;
             client = new WebClient();
+            client.Headers.Add("SimId", Config.SimID);
             ManageDownloads();
         }
 
         public static void AddDownloadToQueue(Uri uri, string path, Action<int> update = null, Action<bool, Exception> completed = null)
         {
+            Init();
             downloads.Enqueue(new Download(uri, path, update, completed));
+        }
+
+        public static Task<AssetModel> GetAsset(BundleConfig.BundleTypes type, string assetGuid, string name = null)
+        {
+            Init();
+            var assetService = new AssetService();
+            var found = assetService.Get(assetGuid);
+            if(found != null) {
+                return Task.FromResult(found);
+            }
+
+            var typeString = BundleConfig.singularOf(type);
+
+            if (name == null) name = typeString;
+
+            string localPath = WebUtilities.GenerateLocalPath(assetGuid, type);
+
+            Uri uri = new Uri(Config.CloudUrl + "/api/v1/assets/download/bundle/" + assetGuid);
+
+            var t = new TaskCompletionSource<AssetModel>();
+            downloads.Enqueue(new Download(uri, localPath,
+            progress => {
+                ConnectionUI.instance?.UpdateDownloadProgress(name, progress);
+                Debug.Log($"{name} Download at {progress}%");
+            } ,
+            (success, ex) => {
+                if (success)
+                {
+                    var model = new AssetModel()
+                    {
+                        AssetGuid = assetGuid,
+                        Type = typeString,
+                        Name = name,
+                        LocalPath = localPath
+                    };
+                    assetService.Add(model);
+                    t.TrySetResult(model);
+                }
+                else
+                {
+                    t.TrySetException(ex);
+                }
+            }));
+            return t.Task;
         }
 
         public static void StopDownload(string url)
@@ -106,6 +155,7 @@ namespace Simulator.Web
 
         static async void ManageDownloads()
         {
+            initialized = true;
             while (true)
             {
                 Download download;

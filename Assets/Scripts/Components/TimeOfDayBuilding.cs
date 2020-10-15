@@ -1,39 +1,46 @@
 /**
- * Copyright (c) 2019 LG Electronics, Inc.
+ * Copyright (c) 2019-2020 LG Electronics, Inc.
  *
  * This software contains code licensed as described in LICENSE.
  *
  */
 
-using UnityEngine;
-using System.Collections;
-using System.Collections.Generic;
 using System;
+using System.Collections.Generic;
+using UnityEngine;
 
 public class TimeOfDayBuilding : MonoBehaviour
 {
-    private static readonly int EmissiveColor = Shader.PropertyToID("_EmissiveColor");
-
+    private static readonly int EmissiveColorId = Shader.PropertyToID("_EmissiveColor");
     private List<Material> allBuildingMaterials = new List<Material>();
+    private Renderer[] allRenderers;
     private Color emitColor = new Color(6f, 6f, 6f);
 
     public void Init(TimeOfDayStateTypes state)
     {
+        allRenderers = transform.GetComponentsInChildren<Renderer>();
         var materials = new List<Material>();
 
-        Array.ForEach(transform.GetComponentsInChildren<Renderer>(), renderer =>
+        Array.ForEach(allRenderers, renderer =>
         {
-            renderer.GetSharedMaterials(materials);
+            renderer.GetMaterials(materials);
             foreach (var material in materials)
             {
                 if (!allBuildingMaterials.Contains(material))
+                {
                     allBuildingMaterials.Add(material);
+                }
             }
         });
-        SimulatorManager.Instance.EnvironmentEffectsManager.TimeOfDayChanged += OnTimeOfDayChange;
+
+        if (SimulatorManager.InstanceAvailable)
+        {
+            SimulatorManager.Instance.EnvironmentEffectsManager.TimeOfDayChanged += OnTimeOfDayChange;
+        }
+
         OnTimeOfDayChange(state);
     }
-    
+
     private void OnTimeOfDayChange(TimeOfDayStateTypes state)
     {
         switch (state)
@@ -59,7 +66,7 @@ public class TimeOfDayBuilding : MonoBehaviour
         {
             if (material == null)
                 continue;
-            material.SetVector(EmissiveColor, color);
+            material.SetVector(EmissiveColorId, color);
         }
     }
 }

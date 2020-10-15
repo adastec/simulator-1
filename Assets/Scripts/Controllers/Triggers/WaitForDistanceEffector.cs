@@ -14,10 +14,10 @@ public class WaitForDistanceEffector : TriggerEffector
     public override string TypeName { get; } = "WaitForDistance";
     public float MaxDistance = 5.0f;
     
-    public override IEnumerator Apply(ITriggerAgent agent)
+    public override IEnumerator Apply(NPCController parentNPC)
     {
         //Make parent npc wait until any ego is closer than the max distance
-        float lowestDistance;
+        var lowestDistance = float.PositiveInfinity;
         do
         {
             yield return null;
@@ -25,7 +25,7 @@ public class WaitForDistanceEffector : TriggerEffector
             var egos = SimulatorManager.Instance.AgentManager.ActiveAgents;
             foreach (var ego in egos)
             {
-                var distance = Vector3.Distance(agent.AgentTransform.position, ego.AgentGO.transform.position);
+                var distance = Vector3.Distance(parentNPC.transform.position, ego.AgentGO.transform.position);
                 if (distance < lowestDistance)
                     lowestDistance = distance;
             }
