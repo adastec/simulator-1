@@ -86,7 +86,7 @@ namespace Simulator.Bridge.Ros
             {
                 name = "intensity",
                 offset = 16,
-                datatype = 2,
+                datatype = 7,
                 count = 1,
             },
             new Ros.PointField()
