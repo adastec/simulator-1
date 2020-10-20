@@ -155,18 +155,19 @@ namespace Simulator.Sensors
 
             }
 
-            SteerInput = Mathf.MoveTowards(SteerInput, keyboardInput.x, Time.deltaTime);
-            AccelInput = keyboardInput.y;
+            //SteerInput = Mathf.MoveTowards(SteerInput, keyboardInput.x, Time.deltaTime);
+            //AccelInput = keyboardInput.y;
         }
         float time_start;
         float time_end;
-       /* private void FixedUpdate()
+       private void FixedUpdate() //Now turning manually is slower as in the real life. ADASTEC
         {
             if (AgentController.Active)
             {
                 float stepSize = 0.025f / (3f * 2.5f); //turn 16.6 degrees a second
                 SteerInput = Mathf.MoveTowards(SteerInput, keyboardInput.x, stepSize);
                 AccelInput = keyboardInput.y;
+                /*
                 if(SteerInput == 1)
                 {
                     //time_start = Time.time;
@@ -176,9 +177,10 @@ namespace Simulator.Sensors
                     //time_end = Time.time;
                     //Debug.Log(time_end - time_start);
                 }
+                */
             }
         }
-       */
+       
         private void OnDestroy()
         {
             if (SystemInfo.operatingSystemFamily == OperatingSystemFamily.Linux && Application.isEditor)

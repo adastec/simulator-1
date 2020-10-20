@@ -1119,6 +1119,7 @@ public class MapAnnotations : EditorWindow
 
         Vector3 avePos = Vector3.Lerp(tool.tempWaypoints[0].transform.position, tool.tempWaypoints[tool.tempWaypoints.Count - 1].transform.position, 0.5f);
         newGo.transform.position = avePos;
+
         var dir = (tool.tempWaypoints[tool.tempWaypoints.Count - 1].transform.position - tool.tempWaypoints[0].transform.position).normalized;
         if (tool.createType == 1) // stopline
         {
@@ -1160,7 +1161,12 @@ public class MapAnnotations : EditorWindow
             case 0: // lane
                 var lane = newGo.GetComponent<MapLane>();
                 foreach (var pos in tempLocalPos)
+                {
                     lane.mapLocalPositions.Add(newGo.transform.InverseTransformPoint(pos));
+                    GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube); //These 2 lines will create cubes at the waypoint positions for
+                    cube.transform.position = pos;                                    //raygroundfilter ADASTEC
+                }
+                    
                 lane.laneTurnType = (MapData.LaneTurnType)tool.laneTurnType + 1;
                 lane.speedLimit = tool.laneSpeedLimit;
                 break;
